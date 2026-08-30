@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>云裁 MES · 原型视觉方案</title>
+  <style>
+    *{box-sizing:border-box}body{margin:0;background:#eef1f5;color:#172033;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif}.page{max-width:1480px;margin:auto;padding:32px}.intro{display:flex;align-items:end;justify-content:space-between;gap:24px;margin-bottom:24px}.intro h1{font-size:30px;margin:0 0 8px}.intro p{margin:0;color:#657084}.badge{background:#172033;color:white;padding:8px 12px;border-radius:999px;font-size:12px}.options{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:20px}.option{background:white;border:2px solid transparent;border-radius:20px;padding:14px;box-shadow:0 10px 30px #24324a14;cursor:pointer;transition:.2s}.option:hover,.option.selected{transform:translateY(-3px);border-color:#2864dc}.option-head{padding:8px 6px 14px;display:flex;justify-content:space-between;gap:10px}.option-head h2{font-size:18px;margin:0}.option-head p{font-size:12px;line-height:1.6;color:#707a8c;margin:5px 0 0}.rec{font-size:11px;background:#dff5e8;color:#08733d;padding:5px 8px;border-radius:999px;height:max-content}.desktop{height:355px;border-radius:13px;overflow:hidden;border:1px solid #d8dde7;position:relative}.phone{width:162px;height:298px;border:6px solid #172033;border-radius:24px;overflow:hidden;position:absolute;right:12px;bottom:10px;box-shadow:0 8px 25px #0004;background:white}.phone:before{content:"";display:block;width:54px;height:10px;border-radius:0 0 8px 8px;background:#172033;position:absolute;top:0;left:48px;z-index:2}.chips{display:flex;gap:6px;flex-wrap:wrap;padding:12px 6px 4px}.chip{font-size:11px;padding:5px 8px;border-radius:999px;background:#f0f3f8;color:#59657a}.select-note{text-align:center;font-size:12px;color:#667085;padding:12px 0 2px}.check{display:none}.selected .check{display:inline;color:#2864dc;font-weight:700}
+    /* A */
+    .a{background:#f6f8fb}.a .side{width:94px;height:100%;background:#12223f;color:#9eb0cf;padding:18px 10px;font-size:9px}.a .logo{color:white;font-size:14px;font-weight:800;margin-bottom:22px}.a .nav{padding:8px;margin:4px 0;border-radius:6px}.a .nav.on{background:#2264d1;color:white}.a .content{position:absolute;left:94px;right:0;top:0;bottom:0;padding:16px}.a .title{font-size:14px;font-weight:750}.a .metrics{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:12px}.a .metric{background:white;border-radius:8px;padding:10px;box-shadow:0 2px 8px #21304a10}.a .num{font-size:18px;font-weight:800;color:#1d55ac}.a table{font-size:8px;width:100%;margin-top:10px;border-collapse:collapse;background:white}.a td,.a th{padding:7px;border-bottom:1px solid #edf0f4;text-align:left}.a .phone{background:#f4f7fb}.a .ph-top{height:64px;background:#12223f;color:white;padding:23px 12px 10px;font-size:11px}.a .ph-card{margin:10px;background:white;border-radius:9px;padding:10px;font-size:8px}.a .ph-code{font-size:14px;font-weight:800}.a .ph-btn{margin:8px 10px;background:#2264d1;color:white;text-align:center;padding:10px;border-radius:8px;font-size:10px}
+    /* B */
+    .b{background:#f6f7f2}.b .top{height:49px;background:#fff;padding:13px 16px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid #e6e6df}.b .brand{font-size:13px;font-weight:850;color:#143a34}.b .tabs{font-size:8px;color:#6b766f;word-spacing:8px}.b .content{padding:16px}.b .greet{font-family:Georgia,"Songti SC",serif;font-size:18px;color:#143a34}.b .sub{font-size:8px;color:#7a817c;margin-top:3px}.b .metrics{display:grid;grid-template-columns:1.2fr 1fr 1fr;gap:9px;margin-top:13px}.b .metric{background:white;border-radius:12px;padding:11px;border:1px solid #eaebe5}.b .metric:first-child{background:#123e37;color:white}.b .num{font-size:20px;font-weight:800}.b .cap{font-size:8px;opacity:.72}.b .flow{margin-top:10px;background:white;border-radius:12px;padding:12px}.b .flowhead{font-size:10px;font-weight:800}.b .bars{display:flex;gap:5px;margin-top:9px;align-items:end}.b .bar{flex:1;background:#e9ece5;border-radius:5px 5px 2px 2px}.b .bar:nth-child(1){height:30px}.b .bar:nth-child(2){height:52px;background:#e7a928}.b .bar:nth-child(3){height:39px;background:#5b8d83}.b .bar:nth-child(4){height:66px;background:#173e37}.b .bar:nth-child(5){height:46px}.b .phone{border-color:#153d36}.b .phone:before{background:#153d36}.b .ph-top{background:#153d36;color:white;padding:22px 12px 13px}.b .hello{font-size:9px;opacity:.75}.b .money{font-size:20px;font-weight:800;margin-top:3px}.b .ph-card{margin:10px;padding:10px;background:#f2f3ec;border-radius:12px;font-size:8px}.b .tag{display:inline-block;background:#dff0e9;color:#15654c;padding:3px 5px;border-radius:10px}.b .ph-title{font-size:13px;font-weight:850;margin:8px 0 4px}.b .ph-btn{margin:10px;background:#e6a82a;color:#18231f;text-align:center;padding:11px;border-radius:10px;font-weight:800;font-size:10px}
+    /* C */
+    .c{background:#10151b;color:white}.c .top{height:54px;padding:15px 16px;border-bottom:1px solid #303840;display:flex;justify-content:space-between}.c .brand{font-weight:900;letter-spacing:1px}.c .live{font-size:8px;color:#41d68a}.c .content{padding:13px}.c .lanes{display:grid;grid-template-columns:repeat(3,1fr);gap:7px}.c .lane{background:#1b222a;border-radius:8px;padding:9px;min-height:142px}.c .lane h4{font-size:9px;margin:0 0 8px;color:#a9b3bd}.c .job{background:#29323c;border-left:3px solid #f4b72e;border-radius:5px;padding:7px;margin:6px 0;font-size:8px}.c .job strong{font-size:11px;display:block}.c .alert{margin-top:8px;border:1px solid #5d4730;background:#261f17;padding:9px;border-radius:8px;font-size:8px;color:#f4c15d}.c .phone{background:#0f151a;border-color:#f2b634;color:white}.c .phone:before{background:#f2b634}.c .ph-top{padding:24px 12px 11px;border-bottom:1px solid #303941;font-size:10px}.c .scan{margin:12px;border:1px solid #38434d;border-radius:12px;padding:12px}.c .scan strong{font-size:15px}.c .big-status{font-size:10px;color:#45d68a;margin:10px 0}.c .ph-btn{margin:10px;background:#f2b634;color:#14191d;text-align:center;padding:14px;border-radius:8px;font-size:11px;font-weight:900}.c .mini{font-size:8px;color:#9aa5af;margin-top:4px}
+    @media(max-width:1050px){.options{grid-template-columns:1fr}.desktop{height:420px}.phone{width:185px;height:335px}.page{padding:20px}}@media(max-width:560px){.page{padding:12px}.intro{align-items:start;flex-direction:column}.desktop{height:360px}.phone{width:150px;height:285px}.a .metrics,.b .metrics{grid-template-columns:1fr 1fr}.option{padding:9px}}
+  </style>
+</head>
+<body>
+<main class="page">
+  <header class="intro"><div><h1>云裁 MES · 视觉方向</h1><p>同一套业务，三种信息密度与车间使用方式。点击方案可高亮预览。</p></div><div class="badge">桌面管理端 + 工人手机端</div></header>
+  <section class="options">
+    <article class="option" data-name="A">
+      <div class="option-head"><div><h2>方案 A · 调度控制台 <span class="check">✓</span></h2><p>数据密集、侧边导航、传统企业后台。适合主管频繁查看表格。</p></div></div>
+      <div class="desktop a">
+        <aside class="side"><div class="logo">云裁 MES</div><div class="nav on">生产总览</div><div class="nav">生产订单</div><div class="nav">裁床扎包</div><div class="nav">工序进度</div><div class="nav">计件工资</div></aside>
+        <div class="content"><div class="title">生产总览</div><div class="metrics"><div class="metric"><div class="cap">今日产量</div><div class="num">2,486</div></div><div class="metric"><div class="cap">在制扎包</div><div class="num">186</div></div><div class="metric"><div class="cap">异常</div><div class="num">7</div></div></div><table><tr><th>订单</th><th>款号</th><th>进度</th><th>交期</th></tr><tr><td>PO-260526</td><td>163#</td><td>68%</td><td>05-31</td></tr><tr><td>PO-260529</td><td>168#</td><td>42%</td><td>06-03</td></tr><tr><td>PO-260531</td><td>207#</td><td>21%</td><td>06-06</td></tr></table></div>
+        <div class="phone"><div class="ph-top">扫码报工　·　张三</div><div class="ph-card"><span>扎包</span><div class="ph-code">10605-2</div><p>163#　宝蓝 / 8XL　4件</p><hr><p>当前工序：上袖</p><p>单价：¥0.80 / 件</p></div><div class="ph-btn">确认开工</div></div>
+      </div>
+      <div class="chips"><span class="chip">高信息密度</span><span class="chip">表格优先</span><span class="chip">主管熟悉</span></div>
+    </article>
+
+    <article class="option selected" data-name="B">
+      <div class="option-head"><div><h2>方案 B · 清晰卡片式 <span class="check">✓</span></h2><p>自然色、清楚层级、大触控目标；办公室与车间使用平衡最好。</p></div><span class="rec">推荐</span></div>
+      <div class="desktop b">
+        <div class="top"><div class="brand">YUNCAI / 云裁生产</div><div class="tabs">总览　订单　扎包　员工　计件</div></div>
+        <div class="content"><div class="greet">下午好，生产主管</div><div class="sub">今天有 12 个订单正在生产，3 个需要关注</div><div class="metrics"><div class="metric"><div class="cap">今日完成</div><div class="num">2,486 <small>件</small></div></div><div class="metric"><div class="cap">订单达成率</div><div class="num">92%</div></div><div class="metric"><div class="cap">异常扎包</div><div class="num">7</div></div></div><div class="flow"><div class="flowhead">今日工序流量</div><div class="bars"><div class="bar"></div><div class="bar"></div><div class="bar"></div><div class="bar"></div><div class="bar"></div></div></div></div>
+        <div class="phone"><div class="ph-top"><div class="hello">张三 · 今日预计计件</div><div class="money">¥98.60</div></div><div class="ph-card"><span class="tag">等待开工</span><div class="ph-title">上袖 · 4件</div><div>163#　宝蓝 / 8XL</div><p>单价 ¥0.80　预计 ¥3.20</p></div><div class="ph-btn">开始上袖</div></div>
+      </div>
+      <div class="chips"><span class="chip">易学易用</span><span class="chip">触控友好</span><span class="chip">费用清晰</span></div>
+    </article>
+
+    <article class="option" data-name="C">
+      <div class="option-head"><div><h2>方案 C · 车间作战屏 <span class="check">✓</span></h2><p>深色高对比、工序泳道、异常突出。适合大屏和固定扫码终端。</p></div></div>
+      <div class="desktop c">
+        <div class="top"><div class="brand">YUNCAI // LIVE FLOOR</div><div class="live">● 实时更新 18:09:42</div></div>
+        <div class="content"><div class="lanes"><div class="lane"><h4>待加工 · 38</h4><div class="job"><strong>10605-2</strong>163# / 宝蓝 / 8XL</div><div class="job"><strong>10606-1</strong>163# / 黑色 / 7XL</div></div><div class="lane"><h4>进行中 · 26</h4><div class="job"><strong>10601-4</strong>上袖 · 张三</div><div class="job"><strong>10602-3</strong>锁边 · 李四</div></div><div class="lane"><h4>已完成 · 142</h4><div class="job"><strong>10598-3</strong>18:06 完成</div><div class="job"><strong>10599-2</strong>18:07 完成</div></div></div><div class="alert">⚠ 7 个扎包停留超过 2 小时　·　点击查看异常</div></div>
+        <div class="phone"><div class="ph-top">工位 08 · 张三</div><div class="scan"><div class="mini">已识别扎包</div><strong>10605-2</strong><div class="big-status">● 可以开始「上袖」</div><div class="mini">4件 · ¥0.80/件 · 预计 ¥3.20</div></div><div class="ph-btn">开始加工</div></div>
+      </div>
+      <div class="chips"><span class="chip">高对比</span><span class="chip">大屏优先</span><span class="chip">异常醒目</span></div>
+    </article>
+  </section>
+  <p class="select-note">当前推荐并高亮方案 B。点击其他方案可比较视觉感受。</p>
+</main>
+<script>
+  document.querySelectorAll('.option').forEach(option=>option.addEventListener('click',()=>{
+    document.querySelectorAll('.option').forEach(x=>x.classList.remove('selected'));
+    option.classList.add('selected');
+  }));
+</script>
+</body>
+</html>

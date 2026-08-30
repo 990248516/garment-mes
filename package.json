@@ -1,0 +1,21 @@
+{
+  "name": "garment-mes",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Garment one-bundle-one-code MES/WIP MVP",
+  "packageManager": "npm@11.7.0",
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "npm run build --workspaces --if-present",
+    "dev": "npm run dev --workspaces --if-present",
+    "generate": "npm run generate --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present",
+    "typecheck": "npm run typecheck --workspaces --if-present"
+  }
+}

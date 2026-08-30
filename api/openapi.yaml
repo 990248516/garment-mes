@@ -1,0 +1,3877 @@
+openapi: 3.1.0
+jsonSchemaDialect: https://json-schema.org/draft/2020-12/schema
+info:
+  title: 云裁 MES / WIP API
+  version: 1.0.0
+  summary: 服装制造“一扎一码”生产管理接口契约
+  description: |
+    面向管理后台、工人扫码端、打印服务和外部集成的 REST API。
+
+    核心约束：
+    - 所有工厂业务请求必须携带 `X-Factory-Id`，服务端同时执行 RBAC 与数据范围校验。
+    - 所有写请求必须携带 `Idempotency-Key`；相同键和相同请求体返回首次结果，相同键但不同请求体返回 `409 IDEMPOTENCY_KEY_REUSED`。
+    - 生产事实时间以服务器时间为准，客户端时间仅用于弱网和离线审计。
+    - 完工数量必须满足 `inputQty = goodQty + defectQty + missingQty`。
+    - 完工、步骤更新、下一步骤解锁、计件快照、事件和审计在同一事务内提交。
+    - 已完成生产事实不可覆盖；更正、返工和计件调整均以追加记录实现。
+    - 金额以十进制定点字符串传输，禁止使用 IEEE 754 浮点数。
+  contact:
+    name: MES Product & Engineering
+  license:
+    name: Proprietary
+servers:
+  - url: https://mes.example.com
+    description: 生产环境示例
+  - url: http://127.0.0.1:3000
+    description: 本地开发
+security:
+  - bearerAuth: []
+tags:
+  - name: Auth
+    description: 登录、令牌与当前用户
+  - name: Organization
+    description: 组织、工厂、车间和生产线
+  - name: Access Control
+    description: 用户、角色与数据权限
+  - name: Workers
+    description: 工人与多工种技能
+  - name: Master Data
+    description: 客户、款式、颜色、尺码和工序
+  - name: Routes
+    description: 款式工艺路线及版本发布
+  - name: Orders
+    description: 生产订单及颜色尺码明细
+  - name: Cutting
+    description: 裁床床次
+  - name: Bundles
+    description: 扎包、二维码、数量调整与追溯
+  - name: Printing
+    description: 卡片打印与补打
+  - name: Work Reports
+    description: 开工、完工、取消和更正
+  - name: Quality
+    description: 异常、缺陷、返工、放行与报废
+  - name: Piecework
+    description: 单价、计件事实、确认和结算
+  - name: Dashboards
+    description: 生产进度、WIP、预警和个人统计
+  - name: Imports & Exports
+    description: 批量导入、导出与异步任务
+  - name: Audit
+    description: 审计日志与敏感操作追踪
+paths:
+  /api/v1/auth/login:
+    post:
+      tags: [Auth]
+      operationId: login
+      summary: 工号/用户名与 PIN/密码登录
+      security: []
+      x-rate-limit: 10/minute/IP+account
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: 登录成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthSession'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '423':
+          description: 账号已锁定或停用
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+  /api/v1/auth/refresh:
+    post:
+      tags: [Auth]
+      operationId: refreshSession
+      summary: 刷新访问令牌
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [refreshToken]
+              properties:
+                refreshToken: { type: string, minLength: 20 }
+      responses:
+        '200':
+          description: 刷新成功并轮换刷新令牌
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AuthSession' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /api/v1/auth/logout:
+    post:
+      tags: [Auth]
+      operationId: logout
+      summary: 注销当前会话
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '204': { description: 已注销 }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /api/v1/me:
+    get:
+      tags: [Auth]
+      operationId: getCurrentUser
+      summary: 获取当前用户、角色和可访问工厂
+      responses:
+        '200':
+          description: 当前身份上下文
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CurrentUser' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /api/v1/organizations:
+    get:
+      tags: [Organization]
+      operationId: listOrganizations
+      summary: 查询组织
+      x-permissions: [organization:read]
+      parameters:
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Search'
+        - $ref: '#/components/parameters/Status'
+      responses:
+        '200':
+          description: 组织列表
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrganizationPage'
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [Organization]
+      operationId: createOrganization
+      summary: 创建组织
+      x-permissions: [organization:write]
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/OrganizationUpsert' }
+      responses:
+        '201':
+          description: 创建成功
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Organization' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+  /api/v1/factories:
+    get:
+      tags: [Organization]
+      operationId: listFactories
+      summary: 查询当前用户可访问工厂
+      x-permissions: [factory:read]
+      parameters:
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Search'
+        - $ref: '#/components/parameters/Status'
+      responses:
+        '200':
+          description: 工厂列表
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/FactoryPage' }
+    post:
+      tags: [Organization]
+      operationId: createFactory
+      summary: 创建工厂
+      x-permissions: [factory:write]
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/FactoryUpsert' }
+      responses:
+        '201':
+          description: 创建成功
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Factory' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+  /api/v1/factories/{factoryId}:
+    parameters:
+      - $ref: '#/components/parameters/FactoryPathId'
+    get:
+      tags: [Organization]
+      operationId: getFactory
+      summary: 获取工厂详情
+      x-permissions: [factory:read]
+      responses:
+        '200':
+          description: 工厂详情
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Factory' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [Organization]
+      operationId: updateFactory
+      summary: 更新工厂
+      x-permissions: [factory:write]
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/IfMatch'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/FactoryPatch' }
+      responses:
+        '200':
+          description: 更新成功
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Factory' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+  /api/v1/workshops:
+    get:
+      tags: [Organization]
+      operationId: listWorkshops
+      summary: 查询车间
+      x-permissions: [workshop:read]
+      parameters:
+        - $ref: '#/components/parameters/FactoryId'
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Search'
+        - $ref: '#/components/parameters/Status'
+      responses:
+        '200':
+          description: 车间列表
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/WorkshopPage' }
+    post:
+      tags: [Organization]
+      operationId: createWorkshop
+      summary: 创建车间
+      x-permissions: [workshop:write]
+      parameters:
+        - $ref: '#/components/parameters/FactoryId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/WorkshopUpsert' }
+      responses:
+        '201':
+          description: 创建成功
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Workshop' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /api/v1/production-lines:
+    get:
+      tags: [Organization]
+      operationId: listProductionLines
+      summary: 查询生产线
+      x-permissions: [line:read]
+      parameters:
+        - $ref: '#/components/parameters/FactoryId'
+        - $ref: '#/components/parameters/WorkshopIdQuery'
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Search'
+        - $ref: '#/components/parameters/Status'
+      responses:
+        '200':
+          description: 生产线列表
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ProductionLinePage' }
+    post:
+      tags: [Organization]
+      operationId: createProductionLine
+      summary: 创建生产线
+      x-permissions: [line:write]
+      parameters:
+        - $ref: '#/components/parameters/FactoryId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ProductionLineUpsert' }
+      responses:
+        '201':
+          description: 创建成功
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ProductionLine' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /api/v1/users:
+    get:
+      tags: [Access Control]
+      operationId: listWorkerAccounts
+      summary: 查询员工账号绑定状态
+      x-permissions: [user:read]
+      parameters:
+        - $ref: '#/components/parameters/FactoryId'
+      responses:
+        '200':
+          description: 员工账号列表
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/WorkerAccountPage' }
+    post:
+      tags: [Access Control]
+      operationId: createWorkerAccount
+      summary: 为员工创建固定最小权限账号
+      x-permissions: [user:write]
+      parameters:
+        - $ref: '#/components/parameters/FactoryId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/WorkerAccountCreate' }
+      responses:
+        '201':
+          description: 创建并绑定成功
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/WorkerAccount' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+  /api/v1/users/{userId}/status:
+    patch:
+      tags: [Access Control]
+      operationId: setWorkerAccountStatus
+      summary: 启用或停用员工账号
+      x-permissions: [user:write]
+      parameters:
+        - $ref: '#/components/parameters/FactoryId'
+        - $ref: '#/components/parameters/UserId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/WorkerAccountStatusPatch' }
+      responses:
+        '200':
+          description: 状态更新成功，已有会话已撤销
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/WorkerAccount' }
+  /api/v1/users/{userId}/password:reset:
+    post:
+      tags: [Access Control]
+      operationId: resetWorkerAccountPassword
+      summary: 重置员工账号临时密码
+      x-permissions: [user:write]
+      parameters:
+        - $ref: '#/components/parameters/FactoryId'
+        - $ref: '#/components/parameters/UserId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/WorkerAccountPasswordReset' }
+      responses:
+        '200':
+          description: 密码已重置，已有会话已撤销
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/WorkerAccount' }
+  /api/v1/users/{userId}/roles:
+    put:
+      tags: [Access Control]
+      operationId: replaceUserRoles
+      summary: 替换用户角色及工厂范围
+      x-permissions: [role:assign]
+      parameters:
+        - $ref: '#/components/parameters/FactoryId'
+        - $ref: '#/components/parameters/UserId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [assignments]
+              properties:
+                assignments:
+                  type: array
+                  items: { $ref: '#/components/schemas/RoleAssignment' }
+      responses:
+        '200':
+          description: 分配成功
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/RoleAssignment' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+  /api/v1/roles:
+    get:
+      tags: [Access Control]
+      operationId: listRoles
+      summary: 查询角色
+      x-permissions: [role:read]
+      parameters:
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: 角色列表
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RolePage' }
+    post:
+      tags: [Access Control]
+      operationId: createRole
+      summary: 创建角色
+      x-permissions: [role:write]
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RoleUpsert' }
+      responses:
+        '201':
+          description: 创建成功
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Role' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /api/v1/workers:
+    get:
+      tags: [Workers]
+      operationId: listWorkers
+      summary: 查询工人
+      x-permissions: [worker:read]
+      parameters:
+        - $ref: '#/components/parameters/FactoryId'
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Search'
+        - $ref: '#/components/parameters/Status'
+        - $ref: '#/components/parameters/WorkshopIdQuery'
+        - $ref: '#/components/parameters/LineIdQuery'
+        - name: processId
+          in: query
+          schema: { $ref: '#/components/schemas/Uuid' }
+      responses:
+        '200':
+          description: 工人列表
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/WorkerPage' }
+    post:
+      tags: [Workers]
+      operationId: createWorker
+      summary: 创建工人
+      x-permissions: [worker:write]
+      parameters:
+        - $ref: '#/components/parameters/FactoryId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/WorkerCreate' }
+      responses:
+        '201':
+          description: 创建成功
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Worker' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+  /api/v1/workers/{workerId}:
+    parameters:
+      - $ref: '#/components/parameters/FactoryId'
+      - $ref: '#/components/parameters/WorkerId'
+    get:
+      tags: [Workers]
+      operationId: getWorker
+      summary: 获取工人及技能
+      x-permissions: [worker:read]
+      responses:
+        '200':
+          description: 工人详情
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Worker' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [Workers]
+      operationId: updateWorker
+      summary: 更新工人
+      x-permissions: [worker:write]
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/IfMatch'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/WorkerPatch' }
+      responses:
+        '200':
+          description: 更新成功
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Worker' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /api/v1/workers/{workerId}/skills:
+    parameters:
+      - $ref: '#/components/parameters/FactoryId'
+      - $ref: '#/components/parameters/WorkerId'
+    get:
+      tags: [Workers]
+      operationId: listWorkerSkills
+      summary: 查询工人掌握的工种
+      x-permissions: [worker:read]
+      responses:
+        '200':
+          description: 技能列表
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/WorkerSkill' }
+    put:
+      tags: [Workers]
+      operationId: replaceWorkerSkills
+      summary: 替换工人技能集合
+      description: 支持一个工人绑定多个工序；历史报工不受技能变更影响。
+      x-permissions: [worker:skill:write]
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [skills]
+              properties:
+                skills:
+                  type: array
+                  minItems: 0
+                  uniqueItems: true
+                  items: { $ref: '#/components/schemas/WorkerSkillInput' }
+      responses:
+        '200':
+          description: 技能已更新
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/WorkerSkill' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+  /api/v1/master-data/{resource}:
+    parameters:
+      - $ref: '#/components/parameters/FactoryId'
+      - $ref: '#/components/parameters/MasterResource'
+    get:
+      tags: [Master Data]
+      operationId: listMasterData
+      summary: 查询基础资料
+      description: 统一查询客户、款式、颜色、尺码和工序。
+      x-permissions: [master:read]
+      parameters:
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Search'
+        - $ref: '#/components/parameters/Status'
+      responses:
+        '200':
+          description: 基础资料列表
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MasterDataPage' }
+    post:
+      tags: [Master Data]
+      operationId: createMasterData
+      summary: 创建基础资料
+      x-permissions: [master:write]
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/MasterDataCreate' }
+      responses:
+        '201':
+          description: 创建成功
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MasterDataItem' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+  /api/v1/master-data/{resource}/{resourceId}:
+    parameters:
+      - $ref: '#/components/parameters/FactoryId'
+      - $ref: '#/components/parameters/MasterResource'
+      - $ref: '#/components/parameters/ResourceId'
+    get:
+      tags: [Master Data]
+      operationId: getMasterData
+      summary: 获取基础资料详情
+      x-permissions: [master:read]
+      responses:
+        '200':
+          description: 基础资料详情
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MasterDataItem' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [Master Data]
+      operationId: updateMasterData
+      summary: 更新基础资料
+      x-permissions: [master:write]
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/IfMatch'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/MasterDataPatch' }
+      responses:
+        '200':
+          description: 更新成功
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MasterDataItem' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /api/v1/processes/{processId}/adjust-rate:
+    post:
+      tags: [Master Data, Piecework]
+      operationId: adjustProcessRate
+      summary: 调整标准工序单价
+      description: 更新工序默认价和未来路线；可选同步历史扎包。已完成报工保留原始金额，并生成正负计件差额记录。
+      x-permissions: [piecework:adjust]
+      parameters:
+        - $ref: '#/components/parameters/FactoryId'
+        - name: processId
+          in: path
+          required: true
+          schema: { $ref: '#/components/schemas/Uuid' }
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ProcessRateAdjustmentRequest' }
+      responses:
+        '200':
+          description: 工序单价已调整
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ProcessRateAdjustmentResult' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+  /api/v1/route-versions:
+    get:
+      tags: [Routes]
+      operationId: listRouteVersions
+      summary: 查询款式工艺路线版本
+      x-permissions: [route:read]
+      parameters:
+        - $ref: '#/components/parameters/FactoryId'
+        - name: styleId
+          in: query
+          schema: { $ref: '#/components/schemas/Uuid' }
+        - name: routeStatus
+          in: query
+          schema: { $ref: '#/components/schemas/RouteVersionStatus' }
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: 路线版本列表
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RouteVersionPage' }
+    post:
+      tags: [Routes]
+      operationId: createRouteVersion
+      summary: 创建工艺路线草稿
+      x-permissions: [route:write]
+      parameters:
+        - $ref: '#/components/parameters/FactoryId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RouteVersionCreate' }
+      responses:
+        '201':
+          description: 草稿已创建
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RouteVersion' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+  /api/v1/route-versions/{routeVersionId}:
+    parameters:
+      - $ref: '#/components/parameters/FactoryId'
+      - $ref: '#/components/parameters/RouteVersionId'
+    get:
+      tags: [Routes]
+      operationId: getRouteVersion
+      summary: 获取路线及步骤
+      x-permissions: [route:read]
+      responses:
+        '200':
+          description: 路线详情
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RouteVersion' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    put:
+      tags: [Routes]
+      operationId: replaceRouteVersion
+      summary: 替换草稿路线步骤
+      description: 仅 DRAFT 可修改；PUBLISHED 路线必须复制为新版本。
+      x-permissions: [route:write]
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/IfMatch'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RouteVersionReplace' }
+      responses:
+        '200':
+          description: 草稿已更新
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RouteVersion' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+  /api/v1/route-versions/{routeVersionId}:publish:
+    post:
+      tags: [Routes]
+      operationId: publishRouteVersion
+      summary: 发布工艺路线
+      x-permissions: [route:publish]
+      parameters:
+        - $ref: '#/components/parameters/FactoryId'
+        - $ref: '#/components/parameters/RouteVersionId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [effectiveFrom]
+              properties:
+                effectiveFrom: { type: string, format: date }
+                reason: { type: string, maxLength: 500 }
+      responses:
+        '200':
+          description: 已发布
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RouteVersion' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+  /api/v1/route-versions/{routeVersionId}:clone:
+    post:
+      tags: [Routes]
+      operationId: cloneRouteVersion
+      summary: 复制路线为新草稿版本
+      x-permissions: [route:write]
+      parameters:
+        - $ref: '#/components/parameters/FactoryId'
+        - $ref: '#/components/parameters/RouteVersionId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '201':
+          description: 新草稿版本
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RouteVersion' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /api/v1/orders:
+    get:
+      tags: [Orders]
+      operationId: listOrders
+      summary: 查询生产订单
+      x-permissions: [order:read]
+      parameters:
+        - $ref: '#/components/parameters/FactoryId'
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Search'
+        - name: orderStatus
+          in: query
+          schema: { $ref: '#/components/schemas/OrderStatus' }
+        - name: customerId
+          in: query
+          schema: { $ref: '#/components/schemas/Uuid' }
+        - name: styleId
+          in: query
+          schema: { $ref: '#/components/schemas/Uuid' }
+        - name: dueFrom
+          in: query
+          schema: { type: string, format: date }
+        - name: dueTo
+          in: query
+          schema: { type: string, format: date }
+        - name: sort
+          in: query
+          schema:
+            type: string
+            enum: [createdAt, -createdAt, dueDate, -dueDate, orderNo, -orderNo]
+      responses:
+        '200':
+          description: 订单列表
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/OrderPage' }
+    post:
+      tags: [Orders]
+      operationId: createOrder
+      summary: 创建生产订单
+      x-permissions: [order:write]
+      parameters:
+        - $ref: '#/components/parameters/FactoryId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/OrderCreate' }
+      responses:
+        '201':
+          description: 订单已创建
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Order' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+  /api/v1/orders/{orderId}:
+    parameters:
+      - $ref: '#/components/parameters/FactoryId'
+      - $ref: '#/components/parameters/OrderId'
+    get:
+      tags: [Orders]
+      operationId: getOrder
+      summary: 获取订单详情与进度
+      x-permissions: [order:read]
+      responses:
+        '200':
+          description: 订单详情
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Order' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [Orders]
+      operationId: updateOrder
+      summary: 更新草稿订单
+      description: 已生成扎包后不得修改款式或删除明细，需走变更流程。
+      x-permissions: [order:write]
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/IfMatch'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/OrderPatch' }
+      responses:
+        '200':
+          description: 订单已更新
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Order' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+  /api/v1/orders/{orderId}/bundle-work-details:
+    get:
+      tags: [Orders, Bundles]
+      operationId: getOrderBundleWorkDetails
+      summary: 获取整张订单的扎包执行明细
+      description: 仅当订单下全部有效扎包均已完成时返回，用于统一导出员工、工艺、数量和计件金额。
+      x-permissions: [bundle:trace]
+      parameters:
+        - $ref: '#/components/parameters/FactoryId'
+        - $ref: '#/components/parameters/OrderId'
+      responses:
+        '200':
+          description: 整张订单全部已完成扎包的执行明细
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/OrderBundleWorkDetail' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /api/v1/orders/{orderId}:release:
+    post:
+      tags: [Orders]
+      operationId: releaseOrder
+      summary: 下达生产订单
+      x-permissions: [order:release]
+      parameters:
+        - $ref: '#/components/parameters/FactoryId'
+        - $ref: '#/components/parameters/OrderId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ReasonRequest' }
+      responses:
+        '200':
+          description: 订单已下达
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Order' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+  /api/v1/orders/{orderId}:cancel:
+    post:
+      tags: [Orders]
+      operationId: cancelOrder
+      summary: 取消订单
+      x-permissions: [order:cancel]
+      parameters:
+        - $ref: '#/components/parameters/FactoryId'
+        - $ref: '#/components/parameters/OrderId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ReasonRequest' }
+      responses:
+        '200':
+          description: 订单已取消
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Order' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /api/v1/orders/{orderId}/progress:
+    get:
+      tags: [Orders]
+      operationId: getOrderProgress
+      summary: 获取订单各工序数量进度
+      x-permissions: [order:read]
+      parameters:
+        - $ref: '#/components/parameters/FactoryId'
+        - $ref: '#/components/parameters/OrderId'
+      responses:
+        '200':
+          description: 订单进度
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/OrderProgress' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /api/v1/cutting-beds:
+    get:
+      tags: [Cutting]
+      operationId: listCuttingBeds
+      summary: 查询裁床床次
+      x-permissions: [cutting:read]
+      parameters:
+        - $ref: '#/components/parameters/FactoryId'
+        - name: orderId
+          in: query
+          schema: { $ref: '#/components/schemas/Uuid' }
+        - name: cuttingStatus
+          in: query
+          schema: { $ref: '#/components/schemas/CuttingBedStatus' }
+        - name: cutDateFrom
+          in: query
+          schema: { type: string, format: date }
+        - name: cutDateTo
+          in: query
+          schema: { type: string, format: date }
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: 床次列表
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CuttingBedPage' }
+    post:
+      tags: [Cutting]
+      operationId: createCuttingBed
+      summary: 创建裁床床次
+      x-permissions: [cutting:write]
+      parameters:
+        - $ref: '#/components/parameters/FactoryId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CuttingBedCreate' }
+      responses:
+        '201':
+          description: 床次已创建
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CuttingBed' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+  /api/v1/cutting-beds/{cuttingBedId}:
+    parameters:
+      - $ref: '#/components/parameters/FactoryId'
+      - $ref: '#/components/parameters/CuttingBedId'
+    get:
+      tags: [Cutting]
+      operationId: getCuttingBed
+      summary: 获取床次及扎包汇总
+      x-permissions: [cutting:read]
+      responses:
+        '200':
+          description: 床次详情
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CuttingBed' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [Cutting]
+      operationId: updateCuttingBed
+      summary: 更新未释放床次
+      x-permissions: [cutting:write]
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/IfMatch'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CuttingBedPatch' }
+      responses:
+        '200':
+          description: 更新成功
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CuttingBed' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /api/v1/cutting-beds/{cuttingBedId}/bundles:preview:
+    post:
+      tags: [Cutting, Bundles]
+      operationId: previewBundleGeneration
+      summary: 预览批量分扎结果
+      description: 不落库；检查订单明细剩余数量、尾扎和超投限制。
+      x-permissions: [bundle:generate]
+      parameters:
+        - $ref: '#/components/parameters/FactoryId'
+        - $ref: '#/components/parameters/CuttingBedId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/BundleGenerationRequest' }
+      responses:
+        '200':
+          description: 分扎预览
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/BundleGenerationPreview' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+  /api/v1/cutting-beds/{cuttingBedId}/bundles:generate:
+    post:
+      tags: [Cutting, Bundles]
+      operationId: generateBundles
+      summary: 批量生成扎包和路线快照
+      description: 固化订单明细、路线版本、计划数量和二维码身份；最多单次生成 1,000 扎。
+      x-permissions: [bundle:generate]
+      parameters:
+        - $ref: '#/components/parameters/FactoryId'
+        - $ref: '#/components/parameters/CuttingBedId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/BundleGenerationRequest' }
+      responses:
+        '201':
+          description: 扎包已生成
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/BundleGenerationResult' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+  /api/v1/bundles:
+    get:
+      tags: [Bundles]
+      operationId: listBundles
+      summary: 查询扎包
+      x-permissions: [bundle:read]
+      parameters:
+        - $ref: '#/components/parameters/FactoryId'
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Search'
+        - name: orderId
+          in: query
+          schema: { $ref: '#/components/schemas/Uuid' }
+        - name: cuttingBedId
+          in: query
+          schema: { $ref: '#/components/schemas/Uuid' }
+        - name: bundleStatus
+          in: query
+          schema: { $ref: '#/components/schemas/BundleStatus' }
+        - name: processId
+          in: query
+          schema: { $ref: '#/components/schemas/Uuid' }
+        - $ref: '#/components/parameters/WorkshopIdQuery'
+        - $ref: '#/components/parameters/LineIdQuery'
+        - name: stalledMinutesGte
+          in: query
+          schema: { type: integer, minimum: 0 }
+      responses:
+        '200':
+          description: 扎包列表
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/BundlePage' }
+  /api/v1/bundles/resolve:
+    post:
+      tags: [Bundles]
+      operationId: resolveBundleByCode
+      summary: 通过短码或扎包号解析扎包
+      description: 短码查询需登录并按用户、设备和 IP 限流；跨工厂统一返回 404。
+      x-permissions: [bundle:scan]
+      x-rate-limit: 30/minute/user+device+IP
+      parameters:
+        - $ref: '#/components/parameters/FactoryId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [code]
+              properties:
+                code: { type: string, minLength: 4, maxLength: 80 }
+                deviceId: { type: string, maxLength: 100 }
+      responses:
+        '200':
+          description: 已解析
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/BundleScanView' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '410':
+          description: 扎包或二维码已作废
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+  /b/{token}:
+    get:
+      tags: [Bundles]
+      operationId: resolveQrToken
+      summary: 解析二维码 Token 并进入工人端
+      description: 服务端仅保存 Token 的 SHA-256；不得在日志中记录完整 Token。
+      security: []
+      x-rate-limit: 60/minute/IP
+      parameters:
+        - name: token
+          in: path
+          required: true
+          schema: { type: string, minLength: 20, maxLength: 128 }
+      responses:
+        '302':
+          description: 重定向到登录或扎包页面
+          headers:
+            Location:
+              schema: { type: string, format: uri-reference }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '410':
+          description: Token 已吊销或扎包已作废
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+  /api/v1/bundles/{bundleId}:
+    parameters:
+      - $ref: '#/components/parameters/FactoryId'
+      - $ref: '#/components/parameters/BundleId'
+    get:
+      tags: [Bundles]
+      operationId: getBundle
+      summary: 获取扎包、路线步骤和当前状态
+      x-permissions: [bundle:read]
+      responses:
+        '200':
+          description: 扎包详情
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/BundleDetail' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /api/v1/bundles/{bundleId}/timeline:
+    get:
+      tags: [Bundles]
+      operationId: getBundleTimeline
+      summary: 查询扎包不可变时间线
+      x-permissions: [bundle:trace]
+      parameters:
+        - $ref: '#/components/parameters/FactoryId'
+        - $ref: '#/components/parameters/BundleId'
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: 扎包事件时间线
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/BundleEventPage' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /api/v1/bundles/{bundleId}/work-details:
+    get:
+      tags: [Bundles]
+      operationId: getBundleWorkDetails
+      summary: 获取已完成扎包的逐工序报工明细
+      description: 返回扎包快照、执行员工、数量和计件金额，用于管理端导出 CSV。
+      x-permissions: [bundle:trace]
+      parameters:
+        - $ref: '#/components/parameters/FactoryId'
+        - $ref: '#/components/parameters/BundleId'
+      responses:
+        '200':
+          description: 已完成扎包的执行明细
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/BundleWorkDetail' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /api/v1/bundles/{bundleId}:adjust-quantity:
+    post:
+      tags: [Bundles]
+      operationId: adjustBundleQuantity
+      summary: 调整扎包有效数量
+      description: 开工后减少数量需要主管权限；所有调整写入事件与审计日志。
+      x-permissions: [bundle:quantity:adjust]
+      parameters:
+        - $ref: '#/components/parameters/FactoryId'
+        - $ref: '#/components/parameters/BundleId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/IfMatch'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/BundleQuantityAdjustment' }
+      responses:
+        '200':
+          description: 数量已调整
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/BundleDetail' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+  /api/v1/bundles/{bundleId}:block:
+    post:
+      tags: [Bundles]
+      operationId: blockBundle
+      summary: 暂停扎包流转
+      x-permissions: [bundle:block]
+      parameters:
+        - $ref: '#/components/parameters/FactoryId'
+        - $ref: '#/components/parameters/BundleId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ReasonRequest' }
+      responses:
+        '200':
+          description: 扎包已暂停
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/BundleDetail' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /api/v1/bundles/{bundleId}:unblock:
+    post:
+      tags: [Bundles]
+      operationId: unblockBundle
+      summary: 恢复扎包流转
+      x-permissions: [bundle:unblock]
+      parameters:
+        - $ref: '#/components/parameters/FactoryId'
+        - $ref: '#/components/parameters/BundleId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ReasonRequest' }
+      responses:
+        '200':
+          description: 扎包已恢复
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/BundleDetail' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /api/v1/bundles/{bundleId}:split:
+    post:
+      tags: [Bundles]
+      operationId: splitBundle
+      summary: 拆分扎包
+      description: 原扎包进入 SPLIT 终态，新扎包使用新的二维码并保留谱系。
+      x-permissions: [bundle:split]
+      parameters:
+        - $ref: '#/components/parameters/FactoryId'
+        - $ref: '#/components/parameters/BundleId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/BundleSplitRequest' }
+      responses:
+        '201':
+          description: 拆分成功
+          content:
+            application/json:
+              schema:
+                type: array
+                minItems: 2
+                items: { $ref: '#/components/schemas/Bundle' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+  /api/v1/bundles:merge:
+    post:
+      tags: [Bundles]
+      operationId: mergeBundles
+      summary: 合并兼容扎包
+      description: 来源扎包进入 MERGED 终态，新扎包使用新的二维码并保留谱系。
+      x-permissions: [bundle:merge]
+      parameters:
+        - $ref: '#/components/parameters/FactoryId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/BundleMergeRequest' }
+      responses:
+        '201':
+          description: 合并后的新扎包
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Bundle' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+  /api/v1/print-jobs:
+    get:
+      tags: [Printing]
+      operationId: listPrintJobs
+      summary: 查询打印任务
+      x-permissions: [print:read]
+      parameters:
+        - $ref: '#/components/parameters/FactoryId'
+        - name: printStatus
+          in: query
+          schema: { $ref: '#/components/schemas/PrintJobStatus' }
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: 打印任务列表
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PrintJobPage' }
+    post:
+      tags: [Printing]
+      operationId: createPrintJob
+      summary: 创建卡片打印或补打任务
+      description: 补打必须填写原因；补打不改变扎包和二维码身份。
+      x-permissions: [print:create]
+      parameters:
+        - $ref: '#/components/parameters/FactoryId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PrintJobCreate' }
+      responses:
+        '202':
+          description: 打印任务已接受
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PrintJob' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+  /api/v1/print-jobs/{printJobId}:
+    get:
+      tags: [Printing]
+      operationId: getPrintJob
+      summary: 获取打印任务结果
+      x-permissions: [print:read]
+      parameters:
+        - $ref: '#/components/parameters/FactoryId'
+        - $ref: '#/components/parameters/PrintJobId'
+      responses:
+        '200':
+          description: 打印任务详情
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PrintJob' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /api/v1/work-reports:start:
+    post:
+      tags: [Work Reports]
+      operationId: startWorkReport
+      summary: 开工
+      description: |
+        校验扎包状态、READY 步骤、前置工序、工人技能和冲突任务。
+        同一扎包步骤只允许一条有效 STARTED 记录。
+      x-permissions: [work-report:start]
+      parameters:
+        - $ref: '#/components/parameters/FactoryId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/WorkStartRequest' }
+      responses:
+        '201':
+          description: 已开工
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/WorkStartResult' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+  /api/v1/work-reports/{workReportId}:complete:
+    post:
+      tags: [Work Reports]
+      operationId: completeWorkReport
+      summary: 完工报工
+      description: |
+        在单一事务内完成数量校验、步骤完成、下一步解锁、扎包/订单进度更新、
+        质量问题创建、计件快照、事件及审计记录。相同幂等键重复提交只产生一条事实。
+      x-permissions: [work-report:complete]
+      parameters:
+        - $ref: '#/components/parameters/FactoryId'
+        - $ref: '#/components/parameters/WorkReportId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/WorkCompleteRequest' }
+      responses:
+        '200':
+          description: 完工成功
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/WorkCompleteResult' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+  /api/v1/work-reports/{workReportId}:cancel:
+    post:
+      tags: [Work Reports]
+      operationId: cancelWorkReport
+      summary: 取消未产生产量的开工
+      description: 已提交产量的记录不能取消；取消后步骤回到 READY。
+      x-permissions: [work-report:cancel]
+      parameters:
+        - $ref: '#/components/parameters/FactoryId'
+        - $ref: '#/components/parameters/WorkReportId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ReasonRequest' }
+      responses:
+        '200':
+          description: 已取消
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/WorkReport' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /api/v1/work-reports/{workReportId}:correct:
+    post:
+      tags: [Work Reports]
+      operationId: correctWorkReport
+      summary: 冲销并更正已完成报工
+      description: 不覆盖原记录；生成 REVERSED 原记录、关联更正报工和对应计件调整。
+      x-permissions: [work-report:correct]
+      parameters:
+        - $ref: '#/components/parameters/FactoryId'
+        - $ref: '#/components/parameters/WorkReportId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/WorkCorrectionRequest' }
+      responses:
+        '201':
+          description: 更正记录已创建
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/WorkCompleteResult' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+  /api/v1/work-reports:
+    get:
+      tags: [Work Reports]
+      operationId: listWorkReports
+      summary: 查询原始报工记录
+      x-permissions: [work-report:read]
+      parameters:
+        - $ref: '#/components/parameters/FactoryId'
+        - name: bundleId
+          in: query
+          schema: { $ref: '#/components/schemas/Uuid' }
+        - name: workerId
+          in: query
+          schema: { $ref: '#/components/schemas/Uuid' }
+        - name: processId
+          in: query
+          schema: { $ref: '#/components/schemas/Uuid' }
+        - name: reportStatus
+          in: query
+          schema: { $ref: '#/components/schemas/WorkReportStatus' }
+        - name: completedFrom
+          in: query
+          schema: { type: string, format: date-time }
+        - name: completedTo
+          in: query
+          schema: { type: string, format: date-time }
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: 报工记录列表
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/WorkReportPage' }
+  /api/v1/me/tasks:
+    get:
+      tags: [Work Reports]
+      operationId: listMyTasks
+      summary: 查询当前工人的进行中任务
+      x-permissions: [self:work-report:read]
+      parameters:
+        - $ref: '#/components/parameters/FactoryId'
+        - name: taskStatus
+          in: query
+          schema:
+            type: string
+            enum: [READY, STARTED, BLOCKED]
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: 我的任务
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/WorkerTaskPage' }
+  /api/v1/quality-issues:
+    get:
+      tags: [Quality]
+      operationId: listQualityIssues
+      summary: 查询质量问题和异常
+      x-permissions: [quality:read]
+      parameters:
+        - $ref: '#/components/parameters/FactoryId'
+        - name: qualityStatus
+          in: query
+          schema: { $ref: '#/components/schemas/QualityIssueStatus' }
+        - name: severity
+          in: query
+          schema: { $ref: '#/components/schemas/QualitySeverity' }
+        - name: bundleId
+          in: query
+          schema: { $ref: '#/components/schemas/Uuid' }
+        - name: orderId
+          in: query
+          schema: { $ref: '#/components/schemas/Uuid' }
+        - name: defectCode
+          in: query
+          schema: { type: string }
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: 质量问题列表
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/QualityIssuePage' }
+    post:
+      tags: [Quality]
+      operationId: createQualityIssue
+      summary: 登记缺陷或生产异常
+      description: 可配置为同时将扎包置为 BLOCKED；附件先上传对象存储后提交元数据。
+      x-permissions: [quality:create]
+      parameters:
+        - $ref: '#/components/parameters/FactoryId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/QualityIssueCreate' }
+      responses:
+        '201':
+          description: 问题已登记
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/QualityIssue' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+  /api/v1/quality-issues/{qualityIssueId}:
+    get:
+      tags: [Quality]
+      operationId: getQualityIssue
+      summary: 获取问题及处理历史
+      x-permissions: [quality:read]
+      parameters:
+        - $ref: '#/components/parameters/FactoryId'
+        - $ref: '#/components/parameters/QualityIssueId'
+      responses:
+        '200':
+          description: 质量问题详情
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/QualityIssue' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /api/v1/quality-issues/{qualityIssueId}/actions:
+    post:
+      tags: [Quality]
+      operationId: addQualityIssueAction
+      summary: 追加问题处理动作
+      description: REWORK 创建独立返工步骤；SCRAP 扣减可流转数量；RELEASE 恢复流程并保留审计。
+      x-permissions: [quality:resolve]
+      parameters:
+        - $ref: '#/components/parameters/FactoryId'
+        - $ref: '#/components/parameters/QualityIssueId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/QualityIssueActionCreate' }
+      responses:
+        '201':
+          description: 处理动作已追加
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/QualityIssue' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+  /api/v1/piece-rates:
+    get:
+      tags: [Piecework]
+      operationId: listPieceRates
+      summary: 查询计件单价
+      x-permissions: [piece-rate:read]
+      parameters:
+        - $ref: '#/components/parameters/FactoryId'
+        - name: styleId
+          in: query
+          schema: { $ref: '#/components/schemas/Uuid' }
+        - name: processId
+          in: query
+          schema: { $ref: '#/components/schemas/Uuid' }
+        - name: effectiveOn
+          in: query
+          schema: { type: string, format: date }
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: 单价列表
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PieceRatePage' }
+    post:
+      tags: [Piecework]
+      operationId: createPieceRate
+      summary: 创建计件单价
+      description: 同一工厂、款式和工序的生效区间不得重叠。
+      x-permissions: [piece-rate:write]
+      parameters:
+        - $ref: '#/components/parameters/FactoryId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PieceRateCreate' }
+      responses:
+        '201':
+          description: 单价已创建
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PieceRate' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+  /api/v1/piecework-entries:
+    get:
+      tags: [Piecework]
+      operationId: listPieceworkEntries
+      summary: 查询计件事实明细
+      x-permissions: [piecework:read]
+      parameters:
+        - $ref: '#/components/parameters/FactoryId'
+        - name: workerId
+          in: query
+          schema: { $ref: '#/components/schemas/Uuid' }
+        - name: settlementStatus
+          in: query
+          schema: { $ref: '#/components/schemas/PieceworkStatus' }
+        - name: bundleNo
+          in: query
+          description: 按扎包号模糊筛选。
+          schema: { type: string, maxLength: 80 }
+        - name: from
+          in: query
+          schema: { type: string, format: date }
+        - name: to
+          in: query
+          schema: { type: string, format: date }
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: 计件明细
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PieceworkEntryPage' }
+  /api/v1/piecework-entries:confirm:
+    post:
+      tags: [Piecework]
+      operationId: confirmPieceworkEntries
+      summary: 批量确认计件产量
+      x-permissions: [piecework:confirm]
+      parameters:
+        - $ref: '#/components/parameters/FactoryId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PieceworkBatchAction' }
+      responses:
+        '200':
+          description: 已确认
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PieceworkBatchResult' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /api/v1/piecework-entries:settle:
+    post:
+      tags: [Piecework]
+      operationId: settlePieceworkEntries
+      summary: 批量锁账结算
+      description: 仅 CONFIRMED 可结算；SETTLED 记录只能通过调整记录修正。
+      x-permissions: [piecework:settle]
+      parameters:
+        - $ref: '#/components/parameters/FactoryId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PieceworkBatchAction' }
+      responses:
+        '200':
+          description: 已结算
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PieceworkBatchResult' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /api/v1/piecework-entries/{pieceworkEntryId}:adjust:
+    post:
+      tags: [Piecework]
+      operationId: adjustPieceworkEntry
+      summary: 创建计件正负调整记录
+      x-permissions: [piecework:adjust]
+      parameters:
+        - $ref: '#/components/parameters/FactoryId'
+        - $ref: '#/components/parameters/PieceworkEntryId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PieceworkAdjustmentCreate' }
+      responses:
+        '201':
+          description: 调整记录已创建
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PieceworkEntry' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+  /api/v1/me/piecework:
+    get:
+      tags: [Piecework]
+      operationId: getMyPiecework
+      summary: 查看本人本次、今日、本周和本月计件
+      description: 工人只能查看自己的金额；返回预计、已确认和已结算分组。
+      x-permissions: [self:piecework:read]
+      parameters:
+        - $ref: '#/components/parameters/FactoryId'
+        - name: period
+          in: query
+          schema:
+            type: string
+            enum: [TODAY, WEEK, MONTH, CUSTOM]
+            default: TODAY
+        - name: from
+          in: query
+          schema: { type: string, format: date }
+        - name: to
+          in: query
+          schema: { type: string, format: date }
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: 本人计件汇总和明细
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MyPieceworkView' }
+  /api/v1/dashboards/production-overview:
+    get:
+      tags: [Dashboards]
+      operationId: getProductionOverview
+      summary: 获取全厂生产总览
+      x-permissions: [dashboard:production]
+      parameters:
+        - $ref: '#/components/parameters/FactoryId'
+        - name: date
+          in: query
+          schema: { type: string, format: date }
+        - $ref: '#/components/parameters/WorkshopIdQuery'
+        - $ref: '#/components/parameters/LineIdQuery'
+      responses:
+        '200':
+          description: 总览指标
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ProductionOverview' }
+  /api/v1/dashboards/order-progress:
+    get:
+      tags: [Dashboards]
+      operationId: getOrderProgressDashboard
+      summary: 获取订单进度看板
+      x-permissions: [dashboard:order]
+      parameters:
+        - $ref: '#/components/parameters/FactoryId'
+        - name: orderStatus
+          in: query
+          schema: { $ref: '#/components/schemas/OrderStatus' }
+        - name: dueFrom
+          in: query
+          schema: { type: string, format: date }
+        - name: dueTo
+          in: query
+          schema: { type: string, format: date }
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: 订单进度看板
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/OrderProgressDashboardPage' }
+  /api/v1/dashboards/process-wip:
+    get:
+      tags: [Dashboards]
+      operationId: getProcessWipDashboard
+      summary: 获取工序投入、产出与 WIP
+      x-permissions: [dashboard:wip]
+      parameters:
+        - $ref: '#/components/parameters/FactoryId'
+        - name: orderId
+          in: query
+          schema: { $ref: '#/components/schemas/Uuid' }
+        - name: processId
+          in: query
+          schema: { $ref: '#/components/schemas/Uuid' }
+        - $ref: '#/components/parameters/WorkshopIdQuery'
+        - $ref: '#/components/parameters/LineIdQuery'
+      responses:
+        '200':
+          description: 工序 WIP
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/ProcessWipMetric' }
+  /api/v1/dashboards/alerts:
+    get:
+      tags: [Dashboards]
+      operationId: listProductionAlerts
+      summary: 查询超期、滞留、数量、跳序和补打预警
+      x-permissions: [dashboard:alerts]
+      parameters:
+        - $ref: '#/components/parameters/FactoryId'
+        - name: alertType
+          in: query
+          schema: { $ref: '#/components/schemas/AlertType' }
+        - name: severity
+          in: query
+          schema: { $ref: '#/components/schemas/AlertSeverity' }
+        - name: acknowledged
+          in: query
+          schema: { type: boolean }
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: 生产预警
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ProductionAlertPage' }
+  /api/v1/import-jobs:
+    post:
+      tags: [Imports & Exports]
+      operationId: createImportJob
+      summary: 创建 Excel/CSV 导入预校验任务
+      description: 上传文件使用预签名对象存储；本接口只接收对象键和导入类型。
+      x-permissions: [import:create]
+      parameters:
+        - $ref: '#/components/parameters/FactoryId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ImportJobCreate' }
+      responses:
+        '202':
+          description: 导入预校验任务已接受
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ImportJob' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+  /api/v1/import-jobs/{jobId}:
+    get:
+      tags: [Imports & Exports]
+      operationId: getImportJob
+      summary: 获取导入预校验和逐行错误
+      x-permissions: [import:read]
+      parameters:
+        - $ref: '#/components/parameters/FactoryId'
+        - $ref: '#/components/parameters/JobId'
+      responses:
+        '200':
+          description: 导入任务状态
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ImportJob' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /api/v1/import-jobs/{jobId}:commit:
+    post:
+      tags: [Imports & Exports]
+      operationId: commitImportJob
+      summary: 提交已通过预校验的导入
+      x-permissions: [import:commit]
+      parameters:
+        - $ref: '#/components/parameters/FactoryId'
+        - $ref: '#/components/parameters/JobId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '202':
+          description: 导入执行中
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ImportJob' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /api/v1/export-jobs:
+    post:
+      tags: [Imports & Exports]
+      operationId: createExportJob
+      summary: 创建敏感数据导出任务
+      description: 导出按调用者数据范围执行并记录审计；下载链接短期有效。
+      x-permissions: [export:create]
+      parameters:
+        - $ref: '#/components/parameters/FactoryId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ExportJobCreate' }
+      responses:
+        '202':
+          description: 导出任务已接受
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ExportJob' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+  /api/v1/export-jobs/{jobId}:
+    get:
+      tags: [Imports & Exports]
+      operationId: getExportJob
+      summary: 获取导出状态和下载链接
+      x-permissions: [export:read]
+      parameters:
+        - $ref: '#/components/parameters/FactoryId'
+        - $ref: '#/components/parameters/JobId'
+      responses:
+        '200':
+          description: 导出任务状态
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ExportJob' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /api/v1/audit-logs:
+    get:
+      tags: [Audit]
+      operationId: listAuditLogs
+      summary: 查询不可变审计日志
+      x-permissions: [audit:read]
+      parameters:
+        - $ref: '#/components/parameters/FactoryId'
+        - name: objectType
+          in: query
+          schema: { type: string }
+        - name: objectId
+          in: query
+          schema: { $ref: '#/components/schemas/Uuid' }
+        - name: actorUserId
+          in: query
+          schema: { $ref: '#/components/schemas/Uuid' }
+        - name: action
+          in: query
+          schema: { type: string }
+        - name: from
+          in: query
+          schema: { type: string, format: date-time }
+        - name: to
+          in: query
+          schema: { type: string, format: date-time }
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: 审计日志
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AuditLogPage' }
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: 短期访问令牌；账号停用、设备解绑和会话撤销应立即失效。
+  parameters:
+    FactoryId:
+      name: X-Factory-Id
+      in: header
+      required: true
+      description: 当前业务工厂。服务端必须校验其属于令牌允许的数据范围。
+      schema: { $ref: '#/components/schemas/Uuid' }
+    FactoryPathId:
+      name: factoryId
+      in: path
+      required: true
+      schema: { $ref: '#/components/schemas/Uuid' }
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      description: UUID。相同键和请求体返回首次响应；相同键配不同请求体返回 409。
+      schema: { type: string, format: uuid }
+    IfMatch:
+      name: If-Match
+      in: header
+      required: true
+      description: 资源乐观锁版本，格式为带引号的整数 ETag，例如 `"3"`。
+      schema: { type: string, pattern: '^"[1-9][0-9]*"$' }
+    Cursor:
+      name: cursor
+      in: query
+      schema: { type: string, minLength: 1 }
+      description: 上一页返回的不透明游标。
+    Limit:
+      name: limit
+      in: query
+      schema: { type: integer, minimum: 1, maximum: 200, default: 50 }
+    Search:
+      name: q
+      in: query
+      schema: { type: string, maxLength: 100 }
+      description: 编码、名称或业务号模糊查询。
+    Status:
+      name: status
+      in: query
+      schema: { $ref: '#/components/schemas/ActiveStatus' }
+    WorkshopIdQuery:
+      name: workshopId
+      in: query
+      schema: { $ref: '#/components/schemas/Uuid' }
+    LineIdQuery:
+      name: productionLineId
+      in: query
+      schema: { $ref: '#/components/schemas/Uuid' }
+    UserId:
+      name: userId
+      in: path
+      required: true
+      schema: { $ref: '#/components/schemas/Uuid' }
+    WorkerId:
+      name: workerId
+      in: path
+      required: true
+      schema: { $ref: '#/components/schemas/Uuid' }
+    ResourceId:
+      name: resourceId
+      in: path
+      required: true
+      schema: { $ref: '#/components/schemas/Uuid' }
+    MasterResource:
+      name: resource
+      in: path
+      required: true
+      schema:
+        type: string
+        enum: [customers, styles, colors, sizes, processes]
+    RouteVersionId:
+      name: routeVersionId
+      in: path
+      required: true
+      schema: { $ref: '#/components/schemas/Uuid' }
+    OrderId:
+      name: orderId
+      in: path
+      required: true
+      schema: { $ref: '#/components/schemas/Uuid' }
+    CuttingBedId:
+      name: cuttingBedId
+      in: path
+      required: true
+      schema: { $ref: '#/components/schemas/Uuid' }
+    BundleId:
+      name: bundleId
+      in: path
+      required: true
+      schema: { $ref: '#/components/schemas/Uuid' }
+    PrintJobId:
+      name: printJobId
+      in: path
+      required: true
+      schema: { $ref: '#/components/schemas/Uuid' }
+    WorkReportId:
+      name: workReportId
+      in: path
+      required: true
+      schema: { $ref: '#/components/schemas/Uuid' }
+    QualityIssueId:
+      name: qualityIssueId
+      in: path
+      required: true
+      schema: { $ref: '#/components/schemas/Uuid' }
+    PieceworkEntryId:
+      name: pieceworkEntryId
+      in: path
+      required: true
+      schema: { $ref: '#/components/schemas/Uuid' }
+    JobId:
+      name: jobId
+      in: path
+      required: true
+      schema: { $ref: '#/components/schemas/Uuid' }
+  headers:
+    XRequestId:
+      description: 服务端请求追踪 UUID。
+      schema: { type: string, format: uuid }
+    ETag:
+      description: 当前资源版本，例如 `"3"`。
+      schema: { type: string }
+    IdempotencyReplayed:
+      description: true 表示该响应来自已缓存的幂等结果。
+      schema: { type: boolean }
+    RetryAfter:
+      description: 建议重试等待秒数。
+      schema: { type: integer, minimum: 1 }
+  responses:
+    Unauthorized:
+      description: 未登录、令牌过期或会话已撤销
+      headers:
+        X-Request-Id: { $ref: '#/components/headers/XRequestId' }
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+          example:
+            type: https://mes.example.com/problems/unauthorized
+            title: 身份验证失败
+            status: 401
+            code: UNAUTHORIZED
+            requestId: 48e23aa2-629d-4cd7-92cb-021242c4a15f
+            serverTime: '2026-08-29T11:00:00Z'
+    Forbidden:
+      description: 无操作权限或数据范围不允许
+      headers:
+        X-Request-Id: { $ref: '#/components/headers/XRequestId' }
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    NotFound:
+      description: 资源不存在；跨工厂资源也统一返回 404，避免信息泄露
+      headers:
+        X-Request-Id: { $ref: '#/components/headers/XRequestId' }
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    Conflict:
+      description: 状态冲突、乐观锁失败、唯一约束冲突或幂等键误用
+      headers:
+        X-Request-Id: { $ref: '#/components/headers/XRequestId' }
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    ValidationFailed:
+      description: 字段、数量守恒或业务校验失败
+      headers:
+        X-Request-Id: { $ref: '#/components/headers/XRequestId' }
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+          example:
+            type: https://mes.example.com/problems/quantity-unbalanced
+            title: 完工数量不平
+            status: 422
+            code: QUANTITY_UNBALANCED
+            detail: 投入 10，良品、次品和短缺合计 9，还差 1 件。
+            requestId: a99a99c1-89dd-4dac-b87d-77d8ea9d74d1
+            serverTime: '2026-08-29T11:00:00Z'
+            errors:
+              - field: missingQty
+                code: SUM_MISMATCH
+                message: 请补录 1 件。
+    TooManyRequests:
+      description: 触发登录、扫码、短码或报工限流
+      headers:
+        X-Request-Id: { $ref: '#/components/headers/XRequestId' }
+        Retry-After: { $ref: '#/components/headers/RetryAfter' }
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+  schemas:
+    Uuid:
+      type: string
+      format: uuid
+    Money:
+      type: string
+      pattern: '^-?[0-9]{1,10}(\.[0-9]{1,4})?$'
+      examples: ['3.2000']
+    NonNegativeMoney:
+      type: string
+      pattern: '^[0-9]{1,10}(\.[0-9]{1,4})?$'
+      examples: ['0.8000']
+    Quantity:
+      type: integer
+      minimum: 0
+    PositiveQuantity:
+      type: integer
+      minimum: 1
+    ActiveStatus:
+      type: string
+      enum: [ACTIVE, INACTIVE]
+    UserStatus:
+      type: string
+      enum: [ACTIVE, LOCKED, INACTIVE]
+    WorkerStatus:
+      type: string
+      enum: [ACTIVE, INACTIVE, LEFT]
+    RouteVersionStatus:
+      type: string
+      enum: [DRAFT, PUBLISHED, RETIRED]
+    OrderStatus:
+      type: string
+      enum: [DRAFT, RELEASED, IN_PROGRESS, COMPLETED, CANCELLED]
+    CuttingBedStatus:
+      type: string
+      enum: [DRAFT, CUTTING, CUT, RELEASED, CANCELLED]
+    BundleStatus:
+      type: string
+      enum: [CREATED, IN_PROGRESS, BLOCKED, COMPLETED, CANCELLED, SPLIT, MERGED]
+    BundleStepStatus:
+      type: string
+      enum: [PENDING, READY, STARTED, BLOCKED, COMPLETED, SKIPPED, CANCELLED]
+    WorkReportStatus:
+      type: string
+      enum: [STARTED, COMPLETED, CANCELLED, REVERSED]
+    QualityIssueStatus:
+      type: string
+      enum: [OPEN, IN_REVIEW, REWORK, RELEASED, SCRAPPED, CLOSED]
+    QualitySeverity:
+      type: string
+      enum: [LOW, MEDIUM, HIGH, CRITICAL]
+    QualityActionType:
+      type: string
+      enum: [COMMENT, ASSIGN, REWORK, RELEASE, SCRAP, CLOSE, REOPEN]
+    PieceworkStatus:
+      type: string
+      enum: [PENDING, CONFIRMED, SETTLED, REVERSED]
+    PrintJobStatus:
+      type: string
+      enum: [PENDING, QUEUED, PRINTING, COMPLETED, PARTIAL_FAILED, FAILED, CANCELLED]
+    JobStatus:
+      type: string
+      enum: [PENDING, VALIDATING, READY, RUNNING, COMPLETED, FAILED, CANCELLED]
+    AlertType:
+      type: string
+      enum: [ORDER_OVERDUE, STEP_STALLED, QUANTITY_MISMATCH, STEP_SKIPPED, DUPLICATE_REPRINT, BUNDLE_BLOCKED]
+    AlertSeverity:
+      type: string
+      enum: [INFO, WARNING, CRITICAL]
+    Problem:
+      type: object
+      required: [type, title, status, code, requestId, serverTime]
+      properties:
+        type: { type: string, format: uri-reference }
+        title: { type: string }
+        status: { type: integer, minimum: 400, maximum: 599 }
+        code:
+          type: string
+          description: 稳定的机器可读错误码。
+          examples: [QUANTITY_UNBALANCED]
+        detail: { type: string }
+        instance: { type: string, format: uri-reference }
+        requestId: { type: string, format: uuid }
+        serverTime: { type: string, format: date-time }
+        retryable: { type: boolean, default: false }
+        errors:
+          type: array
+          items:
+            type: object
+            required: [code, message]
+            properties:
+              field: { type: string }
+              code: { type: string }
+              message: { type: string }
+              rejectedValue: {}
+    PageInfo:
+      type: object
+      required: [hasMore]
+      properties:
+        nextCursor: { type: [string, 'null'] }
+        hasMore: { type: boolean }
+        total:
+          type: [integer, 'null']
+          minimum: 0
+          description: 仅在查询成本可接受时返回。
+    AuditFields:
+      type: object
+      required: [createdAt, updatedAt]
+      properties:
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+        createdBy: { oneOf: [{ $ref: '#/components/schemas/Uuid' }, { type: 'null' }] }
+        updatedBy: { oneOf: [{ $ref: '#/components/schemas/Uuid' }, { type: 'null' }] }
+        version: { type: integer, minimum: 1 }
+    LoginRequest:
+      type: object
+      required: [account, secret]
+      properties:
+        account: { type: string, minLength: 1, maxLength: 80 }
+        secret: { type: string, minLength: 4, maxLength: 200, writeOnly: true }
+        organizationCode: { type: string, maxLength: 40 }
+        deviceId: { type: string, maxLength: 100 }
+        deviceName: { type: string, maxLength: 100 }
+    AuthSession:
+      type: object
+      required: [accessToken, refreshToken, expiresIn, tokenType, user, serverTime]
+      properties:
+        accessToken: { type: string, writeOnly: true }
+        refreshToken: { type: string, writeOnly: true }
+        expiresIn: { type: integer, minimum: 60 }
+        tokenType: { type: string, const: Bearer }
+        user: { $ref: '#/components/schemas/CurrentUser' }
+        serverTime: { type: string, format: date-time }
+    CurrentUser:
+      type: object
+      required: [id, organizationId, username, displayName, roles, permissions, factories]
+      properties:
+        id: { $ref: '#/components/schemas/Uuid' }
+        organizationId: { $ref: '#/components/schemas/Uuid' }
+        username: { type: string }
+        displayName: { type: string }
+        workerId: { oneOf: [{ $ref: '#/components/schemas/Uuid' }, { type: 'null' }] }
+        roles:
+          type: array
+          items: { type: string }
+        permissions:
+          type: array
+          items: { type: string }
+        factories:
+          type: array
+          items: { $ref: '#/components/schemas/FactoryScope' }
+    FactoryScope:
+      type: object
+      required: [factoryId, factoryName, dataScopes]
+      properties:
+        factoryId: { $ref: '#/components/schemas/Uuid' }
+        factoryName: { type: string }
+        dataScopes:
+          type: array
+          items:
+            type: string
+            enum: [ALL, FACTORY, WORKSHOP, LINE, SELF]
+        workshopIds:
+          type: array
+          items: { $ref: '#/components/schemas/Uuid' }
+        productionLineIds:
+          type: array
+          items: { $ref: '#/components/schemas/Uuid' }
+    OrganizationUpsert:
+      type: object
+      required: [code, name]
+      properties:
+        code: { type: string, minLength: 1, maxLength: 40 }
+        name: { type: string, minLength: 1, maxLength: 120 }
+        status: { $ref: '#/components/schemas/ActiveStatus' }
+    Organization:
+      allOf:
+        - type: object
+          required: [id, code, name, status]
+          properties:
+            id: { $ref: '#/components/schemas/Uuid' }
+            code: { type: string }
+            name: { type: string }
+            status: { $ref: '#/components/schemas/ActiveStatus' }
+        - $ref: '#/components/schemas/AuditFields'
+    OrganizationPage:
+      type: object
+      required: [items, page]
+      properties:
+        items: { type: array, items: { $ref: '#/components/schemas/Organization' } }
+        page: { $ref: '#/components/schemas/PageInfo' }
+    FactoryUpsert:
+      type: object
+      required: [organizationId, code, name]
+      properties:
+        organizationId: { $ref: '#/components/schemas/Uuid' }
+        code: { type: string, minLength: 1, maxLength: 40 }
+        name: { type: string, minLength: 1, maxLength: 120 }
+        timezone: { type: string, default: Asia/Shanghai, maxLength: 50 }
+        status: { $ref: '#/components/schemas/ActiveStatus' }
+    FactoryPatch:
+      type: object
+      minProperties: 1
+      properties:
+        name: { type: string, minLength: 1, maxLength: 120 }
+        timezone: { type: string, maxLength: 50 }
+        status: { $ref: '#/components/schemas/ActiveStatus' }
+    Factory:
+      allOf:
+        - type: object
+          required: [id, organizationId, code, name, timezone, status]
+          properties:
+            id: { $ref: '#/components/schemas/Uuid' }
+            organizationId: { $ref: '#/components/schemas/Uuid' }
+            code: { type: string }
+            name: { type: string }
+            timezone: { type: string }
+            status: { $ref: '#/components/schemas/ActiveStatus' }
+        - $ref: '#/components/schemas/AuditFields'
+    FactoryPage:
+      type: object
+      required: [items, page]
+      properties:
+        items: { type: array, items: { $ref: '#/components/schemas/Factory' } }
+        page: { $ref: '#/components/schemas/PageInfo' }
+    WorkshopUpsert:
+      type: object
+      required: [code, name]
+      properties:
+        code: { type: string, minLength: 1, maxLength: 40 }
+        name: { type: string, minLength: 1, maxLength: 120 }
+        managerWorkerId: { oneOf: [{ $ref: '#/components/schemas/Uuid' }, { type: 'null' }] }
+        status: { $ref: '#/components/schemas/ActiveStatus' }
+    Workshop:
+      allOf:
+        - type: object
+          required: [id, factoryId, code, name, status]
+          properties:
+            id: { $ref: '#/components/schemas/Uuid' }
+            factoryId: { $ref: '#/components/schemas/Uuid' }
+            code: { type: string }
+            name: { type: string }
+            managerWorkerId: { oneOf: [{ $ref: '#/components/schemas/Uuid' }, { type: 'null' }] }
+            status: { $ref: '#/components/schemas/ActiveStatus' }
+        - $ref: '#/components/schemas/AuditFields'
+    WorkshopPage:
+      type: object
+      required: [items, page]
+      properties:
+        items: { type: array, items: { $ref: '#/components/schemas/Workshop' } }
+        page: { $ref: '#/components/schemas/PageInfo' }
+    ProductionLineUpsert:
+      type: object
+      required: [workshopId, code, name]
+      properties:
+        workshopId: { $ref: '#/components/schemas/Uuid' }
+        code: { type: string, minLength: 1, maxLength: 40 }
+        name: { type: string, minLength: 1, maxLength: 120 }
+        managerWorkerId: { oneOf: [{ $ref: '#/components/schemas/Uuid' }, { type: 'null' }] }
+        status: { $ref: '#/components/schemas/ActiveStatus' }
+    ProductionLine:
+      allOf:
+        - type: object
+          required: [id, factoryId, workshopId, code, name, status]
+          properties:
+            id: { $ref: '#/components/schemas/Uuid' }
+            factoryId: { $ref: '#/components/schemas/Uuid' }
+            workshopId: { $ref: '#/components/schemas/Uuid' }
+            code: { type: string }
+            name: { type: string }
+            managerWorkerId: { oneOf: [{ $ref: '#/components/schemas/Uuid' }, { type: 'null' }] }
+            status: { $ref: '#/components/schemas/ActiveStatus' }
+        - $ref: '#/components/schemas/AuditFields'
+    ProductionLinePage:
+      type: object
+      required: [items, page]
+      properties:
+        items: { type: array, items: { $ref: '#/components/schemas/ProductionLine' } }
+        page: { $ref: '#/components/schemas/PageInfo' }
+    UserCreate:
+      type: object
+      required: [username, displayName, password]
+      properties:
+        username: { type: string, minLength: 1, maxLength: 80 }
+        displayName: { type: string, minLength: 1, maxLength: 120 }
+        password: { type: string, minLength: 8, maxLength: 200, writeOnly: true }
+        phone: { type: [string, 'null'], maxLength: 30 }
+        status: { $ref: '#/components/schemas/UserStatus' }
+        roleAssignments:
+          type: array
+          items: { $ref: '#/components/schemas/RoleAssignment' }
+    User:
+      allOf:
+        - type: object
+          required: [id, organizationId, username, displayName, status, roleAssignments]
+          properties:
+            id: { $ref: '#/components/schemas/Uuid' }
+            organizationId: { $ref: '#/components/schemas/Uuid' }
+            username: { type: string }
+            displayName: { type: string }
+            phone: { type: [string, 'null'] }
+            status: { $ref: '#/components/schemas/UserStatus' }
+            lastLoginAt: { type: [string, 'null'], format: date-time }
+            roleAssignments:
+              type: array
+              items: { $ref: '#/components/schemas/RoleAssignment' }
+        - $ref: '#/components/schemas/AuditFields'
+    UserPage:
+      type: object
+      required: [items, page]
+      properties:
+        items: { type: array, items: { $ref: '#/components/schemas/User' } }
+        page: { $ref: '#/components/schemas/PageInfo' }
+    WorkerAccountCreate:
+      type: object
+      required: [workerId, username, displayName, password]
+      additionalProperties: false
+      properties:
+        workerId: { $ref: '#/components/schemas/Uuid' }
+        username: { type: string, minLength: 1, maxLength: 80 }
+        displayName: { type: string, minLength: 1, maxLength: 100 }
+        password: { type: string, minLength: 8, maxLength: 200, writeOnly: true }
+    WorkerAccountStatusPatch:
+      type: object
+      required: [status]
+      additionalProperties: false
+      properties:
+        status: { type: string, enum: [ACTIVE, INACTIVE] }
+    WorkerAccountPasswordReset:
+      type: object
+      required: [password]
+      additionalProperties: false
+      properties:
+        password: { type: string, minLength: 8, maxLength: 200, writeOnly: true }
+    WorkerAccount:
+      type: object
+      required: [workerId, workerNo, workerName, workerStatus]
+      properties:
+        workerId: { $ref: '#/components/schemas/Uuid' }
+        workerNo: { type: string }
+        workerName: { type: string }
+        workerStatus: { $ref: '#/components/schemas/WorkerStatus' }
+        userId: { oneOf: [{ $ref: '#/components/schemas/Uuid' }, { type: 'null' }] }
+        username: { type: [string, 'null'] }
+        displayName: { type: [string, 'null'] }
+        accountStatus: { oneOf: [{ $ref: '#/components/schemas/UserStatus' }, { type: 'null' }] }
+        lastLoginAt: { type: [string, 'null'], format: date-time }
+    WorkerAccountPage:
+      type: object
+      required: [items, page]
+      properties:
+        items: { type: array, items: { $ref: '#/components/schemas/WorkerAccount' } }
+        page: { $ref: '#/components/schemas/PageInfo' }
+    RoleAssignment:
+      type: object
+      required: [roleId]
+      properties:
+        roleId: { $ref: '#/components/schemas/Uuid' }
+        factoryId: { oneOf: [{ $ref: '#/components/schemas/Uuid' }, { type: 'null' }] }
+    RoleUpsert:
+      type: object
+      required: [code, name, permissions, dataScope]
+      properties:
+        code: { type: string, minLength: 1, maxLength: 60 }
+        name: { type: string, minLength: 1, maxLength: 120 }
+        permissions:
+          type: array
+          uniqueItems: true
+          items: { type: string }
+        dataScope:
+          type: string
+          enum: [ALL, FACTORY, WORKSHOP, LINE, SELF]
+        status: { $ref: '#/components/schemas/ActiveStatus' }
+    Role:
+      allOf:
+        - type: object
+          required: [id, organizationId, code, name, permissions, dataScope, status]
+          properties:
+            id: { $ref: '#/components/schemas/Uuid' }
+            organizationId: { $ref: '#/components/schemas/Uuid' }
+            code: { type: string }
+            name: { type: string }
+            permissions: { type: array, items: { type: string } }
+            dataScope: { type: string, enum: [ALL, FACTORY, WORKSHOP, LINE, SELF] }
+            status: { $ref: '#/components/schemas/ActiveStatus' }
+        - $ref: '#/components/schemas/AuditFields'
+    RolePage:
+      type: object
+      required: [items, page]
+      properties:
+        items: { type: array, items: { $ref: '#/components/schemas/Role' } }
+        page: { $ref: '#/components/schemas/PageInfo' }
+    WorkerCreate:
+      type: object
+      required: [workerNo, name]
+      properties:
+        workerNo: { type: string, minLength: 1, maxLength: 40 }
+        name: { type: string, minLength: 1, maxLength: 80 }
+        userId: { oneOf: [{ $ref: '#/components/schemas/Uuid' }, { type: 'null' }] }
+        pin: { type: [string, 'null'], minLength: 4, maxLength: 20, writeOnly: true }
+        workshopId: { oneOf: [{ $ref: '#/components/schemas/Uuid' }, { type: 'null' }] }
+        productionLineId: { oneOf: [{ $ref: '#/components/schemas/Uuid' }, { type: 'null' }] }
+        hiredOn: { type: [string, 'null'], format: date }
+        status: { $ref: '#/components/schemas/WorkerStatus' }
+        skills:
+          type: array
+          items: { $ref: '#/components/schemas/WorkerSkillInput' }
+    WorkerPatch:
+      type: object
+      minProperties: 1
+      properties:
+        name: { type: string, minLength: 1, maxLength: 80 }
+        userId: { oneOf: [{ $ref: '#/components/schemas/Uuid' }, { type: 'null' }] }
+        pin: { type: [string, 'null'], minLength: 4, maxLength: 20, writeOnly: true }
+        workshopId: { oneOf: [{ $ref: '#/components/schemas/Uuid' }, { type: 'null' }] }
+        productionLineId: { oneOf: [{ $ref: '#/components/schemas/Uuid' }, { type: 'null' }] }
+        status: { $ref: '#/components/schemas/WorkerStatus' }
+        leftOn: { type: [string, 'null'], format: date }
+    Worker:
+      allOf:
+        - type: object
+          required: [id, factoryId, workerNo, name, status, skills]
+          properties:
+            id: { $ref: '#/components/schemas/Uuid' }
+            factoryId: { $ref: '#/components/schemas/Uuid' }
+            userId: { oneOf: [{ $ref: '#/components/schemas/Uuid' }, { type: 'null' }] }
+            workerNo: { type: string }
+            name: { type: string }
+            workshopId: { oneOf: [{ $ref: '#/components/schemas/Uuid' }, { type: 'null' }] }
+            productionLineId: { oneOf: [{ $ref: '#/components/schemas/Uuid' }, { type: 'null' }] }
+            status: { $ref: '#/components/schemas/WorkerStatus' }
+            hiredOn: { type: [string, 'null'], format: date }
+            leftOn: { type: [string, 'null'], format: date }
+            skills:
+              type: array
+              items: { $ref: '#/components/schemas/WorkerSkill' }
+        - $ref: '#/components/schemas/AuditFields'
+    WorkerPage:
+      type: object
+      required: [items, page]
+      properties:
+        items: { type: array, items: { $ref: '#/components/schemas/Worker' } }
+        page: { $ref: '#/components/schemas/PageInfo' }
+    WorkerSkillInput:
+      type: object
+      required: [processId, level]
+      properties:
+        processId: { $ref: '#/components/schemas/Uuid' }
+        level: { type: integer, minimum: 1, maximum: 5 }
+        effectiveFrom: { type: [string, 'null'], format: date }
+        effectiveTo: { type: [string, 'null'], format: date }
+    WorkerSkill:
+      allOf:
+        - $ref: '#/components/schemas/WorkerSkillInput'
+        - type: object
+          required: [id, workerId, processCode, processName]
+          properties:
+            id: { $ref: '#/components/schemas/Uuid' }
+            workerId: { $ref: '#/components/schemas/Uuid' }
+            processCode: { type: string }
+            processName: { type: string }
+    MasterDataCreate:
+      type: object
+      required: [code, name]
+      properties:
+        code: { type: string, minLength: 1, maxLength: 60 }
+        name: { type: string, minLength: 1, maxLength: 120 }
+        status: { $ref: '#/components/schemas/ActiveStatus' }
+        customerId: { oneOf: [{ $ref: '#/components/schemas/Uuid' }, { type: 'null' }] }
+        customerStyleNo: { type: [string, 'null'], maxLength: 100 }
+        imageUrl: { type: [string, 'null'], format: uri }
+        versionName: { type: [string, 'null'], maxLength: 40 }
+        displayOrder: { type: integer, minimum: 0, default: 0 }
+        unit: { type: [string, 'null'], maxLength: 30 }
+        defaultStandardSeconds: { type: [integer, 'null'], minimum: 0 }
+        defaultPieceRate: { oneOf: [{ $ref: '#/components/schemas/NonNegativeMoney' }, { type: 'null' }] }
+    MasterDataPatch:
+      type: object
+      minProperties: 1
+      properties:
+        name: { type: string, minLength: 1, maxLength: 120 }
+        status: { $ref: '#/components/schemas/ActiveStatus' }
+        customerId: { oneOf: [{ $ref: '#/components/schemas/Uuid' }, { type: 'null' }] }
+        customerStyleNo: { type: [string, 'null'], maxLength: 100 }
+        imageUrl: { type: [string, 'null'], format: uri }
+        versionName: { type: [string, 'null'], maxLength: 40 }
+        displayOrder: { type: integer, minimum: 0 }
+        unit: { type: [string, 'null'], maxLength: 30 }
+        defaultStandardSeconds: { type: [integer, 'null'], minimum: 0 }
+        defaultPieceRate: { oneOf: [{ $ref: '#/components/schemas/NonNegativeMoney' }, { type: 'null' }] }
+    MasterDataItem:
+      allOf:
+        - type: object
+          required: [id, factoryId, resourceType, code, name, status]
+          properties:
+            id: { $ref: '#/components/schemas/Uuid' }
+            factoryId: { $ref: '#/components/schemas/Uuid' }
+            resourceType: { type: string, enum: [customers, styles, colors, sizes, processes] }
+            code: { type: string }
+            name: { type: string }
+            status: { $ref: '#/components/schemas/ActiveStatus' }
+            customerId: { oneOf: [{ $ref: '#/components/schemas/Uuid' }, { type: 'null' }] }
+            customerStyleNo: { type: [string, 'null'] }
+            imageUrl: { type: [string, 'null'], format: uri }
+            versionName: { type: [string, 'null'] }
+            displayOrder: { type: [integer, 'null'] }
+            unit: { type: [string, 'null'] }
+            defaultStandardSeconds: { type: [integer, 'null'] }
+            defaultPieceRate: { oneOf: [{ $ref: '#/components/schemas/NonNegativeMoney' }, { type: 'null' }] }
+        - $ref: '#/components/schemas/AuditFields'
+    MasterDataPage:
+      type: object
+      required: [items, page]
+      properties:
+        items: { type: array, items: { $ref: '#/components/schemas/MasterDataItem' } }
+        page: { $ref: '#/components/schemas/PageInfo' }
+    ProcessRateAdjustmentRequest:
+      type: object
+      required: [expectedVersion, unitRate, applyToHistoricalBundles]
+      properties:
+        expectedVersion: { type: integer, minimum: 1 }
+        unitRate: { $ref: '#/components/schemas/NonNegativeMoney' }
+        applyToHistoricalBundles: { type: boolean, default: false }
+        reason:
+          type: [string, 'null']
+          minLength: 1
+          maxLength: 500
+          description: 调整历史扎包时必填。
+    ProcessRateAdjustmentResult:
+      type: object
+      required: [process, updatedRouteSteps, updatedBundleSteps, updatedActiveReports, createdAdjustments, totalAdjustmentAmount, serverTime]
+      properties:
+        process: { $ref: '#/components/schemas/MasterDataItem' }
+        updatedRouteSteps: { type: integer, minimum: 0 }
+        updatedBundleSteps: { type: integer, minimum: 0 }
+        updatedActiveReports: { type: integer, minimum: 0 }
+        createdAdjustments: { type: integer, minimum: 0 }
+        totalAdjustmentAmount: { $ref: '#/components/schemas/Money' }
+        serverTime: { type: string, format: date-time }
+    RouteStepInput:
+      type: object
+      required: [stepNo, processId, isRequired, isQualityGate, allowParallel]
+      properties:
+        stepNo: { type: integer, minimum: 1 }
+        processId: { $ref: '#/components/schemas/Uuid' }
+        isRequired: { type: boolean, default: true }
+        isQualityGate: { type: boolean, default: false }
+        allowParallel: { type: boolean, default: false }
+        canSkip: { type: boolean, default: false }
+        isFinal: { type: boolean, default: false }
+        standardSeconds: { type: integer, minimum: 0 }
+        pieceRate: { oneOf: [{ $ref: '#/components/schemas/NonNegativeMoney' }, { type: 'null' }] }
+        allowedWorkshopIds:
+          type: array
+          items: { $ref: '#/components/schemas/Uuid' }
+        minimumSkillLevel: { type: integer, minimum: 1, maximum: 5, default: 1 }
+        prerequisiteStepNos:
+          type: array
+          items: { type: integer, minimum: 1 }
+    RouteStep:
+      allOf:
+        - $ref: '#/components/schemas/RouteStepInput'
+        - type: object
+          required: [id, processCode, processName]
+          properties:
+            id: { $ref: '#/components/schemas/Uuid' }
+            processCode: { type: string }
+            processName: { type: string }
+    RouteVersionCreate:
+      type: object
+      required: [styleId]
+      properties:
+        styleId: { $ref: '#/components/schemas/Uuid' }
+        effectiveFrom: { type: [string, 'null'], format: date }
+        steps:
+          type: array
+          minItems: 1
+          items: { $ref: '#/components/schemas/RouteStepInput' }
+    RouteVersionReplace:
+      type: object
+      required: [steps]
+      properties:
+        effectiveFrom: { type: [string, 'null'], format: date }
+        steps:
+          type: array
+          minItems: 1
+          items: { $ref: '#/components/schemas/RouteStepInput' }
+    RouteVersion:
+      allOf:
+        - type: object
+          required: [id, factoryId, styleId, versionNo, status, steps]
+          properties:
+            id: { $ref: '#/components/schemas/Uuid' }
+            factoryId: { $ref: '#/components/schemas/Uuid' }
+            styleId: { $ref: '#/components/schemas/Uuid' }
+            styleCode: { type: string }
+            versionNo: { type: integer, minimum: 1 }
+            status: { $ref: '#/components/schemas/RouteVersionStatus' }
+            effectiveFrom: { type: [string, 'null'], format: date }
+            publishedAt: { type: [string, 'null'], format: date-time }
+            publishedBy: { oneOf: [{ $ref: '#/components/schemas/Uuid' }, { type: 'null' }] }
+            steps:
+              type: array
+              items: { $ref: '#/components/schemas/RouteStep' }
+        - $ref: '#/components/schemas/AuditFields'
+    RouteVersionPage:
+      type: object
+      required: [items, page]
+      properties:
+        items: { type: array, items: { $ref: '#/components/schemas/RouteVersion' } }
+        page: { $ref: '#/components/schemas/PageInfo' }
+    OrderItemInput:
+      type: object
+      required: [lineNo, colorId, sizeId, plannedQty]
+      properties:
+        lineNo: { type: integer, minimum: 1 }
+        colorId: { $ref: '#/components/schemas/Uuid' }
+        sizeId: { $ref: '#/components/schemas/Uuid' }
+        dyeLotNo: { type: [string, 'null'], maxLength: 60 }
+        plannedQty: { $ref: '#/components/schemas/PositiveQuantity' }
+        overproductionLimit: { type: integer, minimum: 0, default: 0 }
+    OrderItem:
+      allOf:
+        - $ref: '#/components/schemas/OrderItemInput'
+        - type: object
+          required: [id, orderId, colorCode, colorName, sizeCode, sizeName, allocatedQty]
+          properties:
+            id: { $ref: '#/components/schemas/Uuid' }
+            orderId: { $ref: '#/components/schemas/Uuid' }
+            colorCode: { type: string }
+            colorName: { type: string }
+            sizeCode: { type: string }
+            sizeName: { type: string }
+            allocatedQty: { $ref: '#/components/schemas/Quantity' }
+            completedQty: { $ref: '#/components/schemas/Quantity' }
+    OrderCreate:
+      type: object
+      required: [orderNo, styleId, items]
+      properties:
+        orderNo: { type: string, minLength: 1, maxLength: 60 }
+        customerId: { oneOf: [{ $ref: '#/components/schemas/Uuid' }, { type: 'null' }] }
+        styleId: { $ref: '#/components/schemas/Uuid' }
+        plannedStartDate: { type: [string, 'null'], format: date }
+        dueDate: { type: [string, 'null'], format: date }
+        externalRef: { type: [string, 'null'], maxLength: 100 }
+        notes: { type: [string, 'null'], maxLength: 2000 }
+        items:
+          type: array
+          minItems: 1
+          items: { $ref: '#/components/schemas/OrderItemInput' }
+    OrderPatch:
+      type: object
+      minProperties: 1
+      properties:
+        customerId: { oneOf: [{ $ref: '#/components/schemas/Uuid' }, { type: 'null' }] }
+        styleId: { $ref: '#/components/schemas/Uuid' }
+        plannedStartDate: { type: [string, 'null'], format: date }
+        dueDate: { type: [string, 'null'], format: date }
+        externalRef: { type: [string, 'null'], maxLength: 100 }
+        notes: { type: [string, 'null'], maxLength: 2000 }
+        items:
+          type: array
+          minItems: 1
+          items: { $ref: '#/components/schemas/OrderItemInput' }
+    Order:
+      allOf:
+        - type: object
+          required: [id, factoryId, orderNo, styleId, styleCode, status, totalPlannedQty, items]
+          properties:
+            id: { $ref: '#/components/schemas/Uuid' }
+            factoryId: { $ref: '#/components/schemas/Uuid' }
+            orderNo: { type: string }
+            customerId: { oneOf: [{ $ref: '#/components/schemas/Uuid' }, { type: 'null' }] }
+            customerName: { type: [string, 'null'] }
+            styleId: { $ref: '#/components/schemas/Uuid' }
+            styleCode: { type: string }
+            styleName: { type: string }
+            status: { $ref: '#/components/schemas/OrderStatus' }
+            plannedStartDate: { type: [string, 'null'], format: date }
+            dueDate: { type: [string, 'null'], format: date }
+            totalPlannedQty: { $ref: '#/components/schemas/PositiveQuantity' }
+            allocatedQty: { $ref: '#/components/schemas/Quantity' }
+            completedQty: { $ref: '#/components/schemas/Quantity' }
+            progressPercent: { type: string, pattern: '^[0-9]{1,3}(\.[0-9]{1,2})?$' }
+            externalRef: { type: [string, 'null'] }
+            notes: { type: [string, 'null'] }
+            items:
+              type: array
+              items: { $ref: '#/components/schemas/OrderItem' }
+        - $ref: '#/components/schemas/AuditFields'
+    OrderPage:
+      type: object
+      required: [items, page]
+      properties:
+        items: { type: array, items: { $ref: '#/components/schemas/Order' } }
+        page: { $ref: '#/components/schemas/PageInfo' }
+    OrderProgress:
+      type: object
+      required: [orderId, plannedQty, cutQty, completedQty, wipQty, completionRate, processes]
+      properties:
+        orderId: { $ref: '#/components/schemas/Uuid' }
+        plannedQty: { $ref: '#/components/schemas/Quantity' }
+        cutQty: { $ref: '#/components/schemas/Quantity' }
+        completedQty: { $ref: '#/components/schemas/Quantity' }
+        wipQty: { $ref: '#/components/schemas/Quantity' }
+        completionRate: { type: string }
+        processes:
+          type: array
+          items: { $ref: '#/components/schemas/ProcessWipMetric' }
+        calculatedAt: { type: string, format: date-time }
+    CuttingBedCreate:
+      type: object
+      required: [orderId, bedNo, cutDate]
+      properties:
+        orderId: { $ref: '#/components/schemas/Uuid' }
+        bedNo: { type: string, minLength: 1, maxLength: 40 }
+        cutDate: { type: string, format: date }
+        plyCount: { type: [integer, 'null'], minimum: 1 }
+        dyeLotNo: { type: [string, 'null'], maxLength: 60 }
+        supervisorWorkerId: { oneOf: [{ $ref: '#/components/schemas/Uuid' }, { type: 'null' }] }
+        notes: { type: [string, 'null'], maxLength: 1000 }
+    CuttingBedPatch:
+      type: object
+      minProperties: 1
+      properties:
+        cutDate: { type: string, format: date }
+        plyCount: { type: [integer, 'null'], minimum: 1 }
+        dyeLotNo: { type: [string, 'null'], maxLength: 60 }
+        supervisorWorkerId: { oneOf: [{ $ref: '#/components/schemas/Uuid' }, { type: 'null' }] }
+        status: { $ref: '#/components/schemas/CuttingBedStatus' }
+        notes: { type: [string, 'null'], maxLength: 1000 }
+    CuttingBed:
+      allOf:
+        - type: object
+          required: [id, factoryId, orderId, bedNo, cutDate, status, bundleCount, totalBundleQty]
+          properties:
+            id: { $ref: '#/components/schemas/Uuid' }
+            factoryId: { $ref: '#/components/schemas/Uuid' }
+            orderId: { $ref: '#/components/schemas/Uuid' }
+            orderNo: { type: string }
+            bedNo: { type: string }
+            cutDate: { type: string, format: date }
+            plyCount: { type: [integer, 'null'] }
+            dyeLotNo: { type: [string, 'null'] }
+            status: { $ref: '#/components/schemas/CuttingBedStatus' }
+            supervisorWorkerId: { oneOf: [{ $ref: '#/components/schemas/Uuid' }, { type: 'null' }] }
+            bundleCount: { type: integer, minimum: 0 }
+            totalBundleQty: { $ref: '#/components/schemas/Quantity' }
+            notes: { type: [string, 'null'] }
+        - $ref: '#/components/schemas/AuditFields'
+    CuttingBedPage:
+      type: object
+      required: [items, page]
+      properties:
+        items: { type: array, items: { $ref: '#/components/schemas/CuttingBed' } }
+        page: { $ref: '#/components/schemas/PageInfo' }
+    BundleGenerationLine:
+      type: object
+      required: [orderItemId, standardBundleQty]
+      properties:
+        orderItemId: { $ref: '#/components/schemas/Uuid' }
+        standardBundleQty: { $ref: '#/components/schemas/PositiveQuantity' }
+        quantityToAllocate: { oneOf: [{ $ref: '#/components/schemas/PositiveQuantity' }, { type: 'null' }] }
+        allowTailBundle: { type: boolean, default: true }
+        authorizedOverproductionQty: { type: integer, minimum: 0, default: 0 }
+        overproductionReason: { type: [string, 'null'], maxLength: 500 }
+    BundleGenerationRequest:
+      type: object
+      required: [routeVersionId, lines]
+      properties:
+        routeVersionId: { $ref: '#/components/schemas/Uuid' }
+        bundleNoPrefix: { type: [string, 'null'], maxLength: 40 }
+        lines:
+          type: array
+          minItems: 1
+          maxItems: 1000
+          items: { $ref: '#/components/schemas/BundleGenerationLine' }
+    BundleGenerationPreviewItem:
+      type: object
+      required: [orderItemId, bundleSeq, plannedQty, isTail]
+      properties:
+        orderItemId: { $ref: '#/components/schemas/Uuid' }
+        bundleSeq: { type: integer, minimum: 1 }
+        plannedQty: { $ref: '#/components/schemas/PositiveQuantity' }
+        isTail: { type: boolean }
+    BundleGenerationPreview:
+      type: object
+      required: [bundleCount, totalQty, items, warnings]
+      properties:
+        bundleCount: { type: integer, minimum: 0 }
+        totalQty: { $ref: '#/components/schemas/Quantity' }
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/BundleGenerationPreviewItem' }
+        warnings:
+          type: array
+          items: { type: string }
+    BundleGenerationResult:
+      type: object
+      required: [bundleCount, totalQty, bundles, serverTime]
+      properties:
+        bundleCount: { type: integer, minimum: 1 }
+        totalQty: { $ref: '#/components/schemas/PositiveQuantity' }
+        bundles:
+          type: array
+          items: { $ref: '#/components/schemas/Bundle' }
+        serverTime: { type: string, format: date-time }
+    Bundle:
+      allOf:
+        - type: object
+          required: [id, factoryId, orderId, orderItemId, cuttingBedId, routeVersionId, bundleNo, bundleSeq, shortCode, plannedQty, effectiveQty, completedQty, status, printedCount]
+          properties:
+            id: { $ref: '#/components/schemas/Uuid' }
+            factoryId: { $ref: '#/components/schemas/Uuid' }
+            orderId: { $ref: '#/components/schemas/Uuid' }
+            orderNo: { type: string }
+            orderItemId: { $ref: '#/components/schemas/Uuid' }
+            cuttingBedId: { $ref: '#/components/schemas/Uuid' }
+            bedNo: { type: string }
+            routeVersionId: { $ref: '#/components/schemas/Uuid' }
+            bundleNo: { type: string }
+            bundleSeq: { type: integer, minimum: 1 }
+            shortCode: { type: string }
+            styleCode: { type: string }
+            styleName: { type: string }
+            colorCode: { type: string }
+            colorName: { type: string }
+            sizeCode: { type: string }
+            sizeName: { type: string }
+            dyeLotNo: { type: [string, 'null'] }
+            plannedQty: { $ref: '#/components/schemas/PositiveQuantity' }
+            effectiveQty: { $ref: '#/components/schemas/Quantity' }
+            completedQty: { $ref: '#/components/schemas/Quantity' }
+            status: { $ref: '#/components/schemas/BundleStatus' }
+            currentStepNo: { type: [integer, 'null'], minimum: 1 }
+            currentProcessName: { type: [string, 'null'] }
+            currentWorkerName: { type: [string, 'null'] }
+            currentWorkshopId: { oneOf: [{ $ref: '#/components/schemas/Uuid' }, { type: 'null' }] }
+            currentProductionLineId: { oneOf: [{ $ref: '#/components/schemas/Uuid' }, { type: 'null' }] }
+            blockedReason: { type: [string, 'null'] }
+            printedCount: { type: integer, minimum: 0 }
+            progressPercent: { type: string }
+        - $ref: '#/components/schemas/AuditFields'
+    BundlePage:
+      type: object
+      required: [items, page]
+      properties:
+        items: { type: array, items: { $ref: '#/components/schemas/Bundle' } }
+        page: { $ref: '#/components/schemas/PageInfo' }
+    BundleRouteStep:
+      type: object
+      required: [id, bundleId, stepNo, processId, processCode, processName, isRequired, isQualityGate, inputQty, goodQty, defectQty, missingQty, status, pieceRateSnapshot]
+      properties:
+        id: { $ref: '#/components/schemas/Uuid' }
+        bundleId: { $ref: '#/components/schemas/Uuid' }
+        sourceRouteStepId: { oneOf: [{ $ref: '#/components/schemas/Uuid' }, { type: 'null' }] }
+        stepNo: { type: integer, minimum: 1 }
+        processId: { $ref: '#/components/schemas/Uuid' }
+        processCode: { type: string }
+        processName: { type: string }
+        isRequired: { type: boolean }
+        isQualityGate: { type: boolean }
+        isRework: { type: boolean, default: false }
+        reworkOfStepId: { oneOf: [{ $ref: '#/components/schemas/Uuid' }, { type: 'null' }] }
+        standardSeconds: { type: integer, minimum: 0 }
+        pieceRateSnapshot: { $ref: '#/components/schemas/NonNegativeMoney' }
+        inputQty: { $ref: '#/components/schemas/Quantity' }
+        goodQty: { $ref: '#/components/schemas/Quantity' }
+        defectQty: { $ref: '#/components/schemas/Quantity' }
+        missingQty: { $ref: '#/components/schemas/Quantity' }
+        status: { $ref: '#/components/schemas/BundleStepStatus' }
+        startedAt: { type: [string, 'null'], format: date-time }
+        completedAt: { type: [string, 'null'], format: date-time }
+        version: { type: integer, minimum: 1 }
+    BundleDetail:
+      allOf:
+        - $ref: '#/components/schemas/Bundle'
+        - type: object
+          required: [routeSteps]
+          properties:
+            routeSteps:
+              type: array
+              items: { $ref: '#/components/schemas/BundleRouteStep' }
+            activeWorkReport: { oneOf: [{ $ref: '#/components/schemas/WorkReport' }, { type: 'null' }] }
+            openQualityIssueCount: { type: integer, minimum: 0 }
+    EligibleOperation:
+      type: object
+      required: [bundleRouteStepId, processId, processCode, processName, skillLevel, status, unitRate, estimatedAmount]
+      properties:
+        bundleRouteStepId: { $ref: '#/components/schemas/Uuid' }
+        processId: { $ref: '#/components/schemas/Uuid' }
+        processCode: { type: string }
+        processName: { type: string }
+        skillLevel: { type: integer, minimum: 1, maximum: 5 }
+        status: { $ref: '#/components/schemas/BundleStepStatus' }
+        blockedReason: { type: [string, 'null'] }
+        unitRate: { $ref: '#/components/schemas/NonNegativeMoney' }
+        estimatedAmount: { $ref: '#/components/schemas/NonNegativeMoney' }
+    BundleScanView:
+      type: object
+      required: [bundle, eligibleOperations, history, serverTime]
+      properties:
+        bundle: { $ref: '#/components/schemas/BundleDetail' }
+        eligibleOperations:
+          type: array
+          description: 当前工人有效技能与扎包可执行步骤的交集。
+          items: { $ref: '#/components/schemas/EligibleOperation' }
+        history:
+          type: array
+          items: { $ref: '#/components/schemas/BundleRouteStep' }
+        warnings:
+          type: array
+          items: { type: string }
+        serverTime: { type: string, format: date-time }
+    BundleQuantityAdjustment:
+      type: object
+      required: [newEffectiveQty, reason]
+      properties:
+        newEffectiveQty: { $ref: '#/components/schemas/Quantity' }
+        reason: { type: string, minLength: 1, maxLength: 500 }
+        approvedSupplementQty: { type: integer, minimum: 0, default: 0 }
+    BundleSplitRequest:
+      type: object
+      required: [quantities, reason]
+      properties:
+        quantities:
+          type: array
+          minItems: 2
+          items: { $ref: '#/components/schemas/PositiveQuantity' }
+        reason: { type: string, minLength: 1, maxLength: 500 }
+    BundleMergeRequest:
+      type: object
+      required: [sourceBundleIds, reason]
+      properties:
+        sourceBundleIds:
+          type: array
+          minItems: 2
+          uniqueItems: true
+          items: { $ref: '#/components/schemas/Uuid' }
+        reason: { type: string, minLength: 1, maxLength: 500 }
+    BundleEvent:
+      type: object
+      required: [id, bundleId, eventType, eventAt, payload]
+      properties:
+        id: { $ref: '#/components/schemas/Uuid' }
+        bundleId: { $ref: '#/components/schemas/Uuid' }
+        eventType:
+          type: string
+          enum: [CREATED, PRINTED, STARTED, COMPLETED, BLOCKED, UNBLOCKED, QUALITY, ADJUSTED, PRICE_ADJUSTED, SPLIT, MERGED, SKIPPED, CANCELLED, TOKEN_ROTATED]
+        eventAt: { type: string, format: date-time }
+        actorUserId: { oneOf: [{ $ref: '#/components/schemas/Uuid' }, { type: 'null' }] }
+        actorWorkerId: { oneOf: [{ $ref: '#/components/schemas/Uuid' }, { type: 'null' }] }
+        actorName: { type: [string, 'null'] }
+        workReportId: { oneOf: [{ $ref: '#/components/schemas/Uuid' }, { type: 'null' }] }
+        payload: { type: object, additionalProperties: true }
+    BundleEventPage:
+      type: object
+      required: [items, page]
+      properties:
+        items: { type: array, items: { $ref: '#/components/schemas/BundleEvent' } }
+        page: { $ref: '#/components/schemas/PageInfo' }
+    OrderBundleWorkDetailSummary:
+      type: object
+      required: [id, orderNo, status, styleCode, styleName, bundleCount, completedBundleCount, totalEffectiveQty, totalCompletedQty]
+      properties:
+        id: { $ref: '#/components/schemas/Uuid' }
+        orderNo: { type: string }
+        status: { $ref: '#/components/schemas/OrderStatus' }
+        styleCode: { type: string }
+        styleName: { type: string }
+        bundleCount: { type: integer, minimum: 1 }
+        completedBundleCount: { type: integer, minimum: 1 }
+        totalEffectiveQty: { $ref: '#/components/schemas/Quantity' }
+        totalCompletedQty: { $ref: '#/components/schemas/Quantity' }
+    OrderBundleWorkDetail:
+      type: object
+      required: [order, bundles]
+      properties:
+        order: { $ref: '#/components/schemas/OrderBundleWorkDetailSummary' }
+        bundles:
+          type: array
+          minItems: 1
+          items: { $ref: '#/components/schemas/BundleWorkDetail' }
+    BundleWorkDetailSummary:
+      type: object
+      required: [id, bundleNo, status, bedNo, orderNo, styleCode, styleName, colorCode, colorName, sizeCode, sizeName, dyeLotNo, effectiveQty, completedQty, routeVersionNo]
+      properties:
+        id: { $ref: '#/components/schemas/Uuid' }
+        bundleNo: { type: string }
+        status: { $ref: '#/components/schemas/BundleStatus' }
+        bedNo: { type: string }
+        orderNo: { type: string }
+        styleCode: { type: string }
+        styleName: { type: [string, 'null'] }
+        colorCode: { type: string }
+        colorName: { type: string }
+        sizeCode: { type: string }
+        sizeName: { type: string }
+        dyeLotNo: { type: [string, 'null'] }
+        effectiveQty: { $ref: '#/components/schemas/Quantity' }
+        completedQty: { $ref: '#/components/schemas/Quantity' }
+        routeVersionNo: { type: integer, minimum: 1 }
+    BundleWorkDetailRow:
+      type: object
+      required: [stepNo, processCode, processName, workerNo, workerName, status, startedAt, completedAt, inputQty, goodQty, defectQty, missingQty, unitRate, amount, notes]
+      properties:
+        stepNo: { type: integer, minimum: 1 }
+        processCode: { type: string }
+        processName: { type: string }
+        workerNo: { type: [string, 'null'] }
+        workerName: { type: [string, 'null'] }
+        status: { type: string }
+        startedAt: { type: [string, 'null'], format: date-time }
+        completedAt: { type: [string, 'null'], format: date-time }
+        inputQty: { $ref: '#/components/schemas/Quantity' }
+        goodQty: { $ref: '#/components/schemas/Quantity' }
+        defectQty: { $ref: '#/components/schemas/Quantity' }
+        missingQty: { $ref: '#/components/schemas/Quantity' }
+        unitRate: { $ref: '#/components/schemas/NonNegativeMoney' }
+        amount: { $ref: '#/components/schemas/NonNegativeMoney' }
+        notes: { type: [string, 'null'] }
+    BundleWorkDetail:
+      type: object
+      required: [bundle, rows]
+      properties:
+        bundle: { $ref: '#/components/schemas/BundleWorkDetailSummary' }
+        rows:
+          type: array
+          items: { $ref: '#/components/schemas/BundleWorkDetailRow' }
+    PrintJobCreate:
+      type: object
+      required: [templateCode, printerName, items]
+      properties:
+        templateCode: { type: string, minLength: 1, maxLength: 60 }
+        printerName: { type: string, minLength: 1, maxLength: 120 }
+        dpi: { type: integer, enum: [203, 300] }
+        items:
+          type: array
+          minItems: 1
+          maxItems: 1000
+          items:
+            type: object
+            required: [bundleId, copies, isReprint]
+            properties:
+              bundleId: { $ref: '#/components/schemas/Uuid' }
+              copies: { type: integer, minimum: 1, maximum: 20 }
+              isReprint: { type: boolean }
+              reprintReason: { type: [string, 'null'], maxLength: 500 }
+    PrintJob:
+      allOf:
+        - type: object
+          required: [id, factoryId, templateCode, printerName, status, requestedBy, itemCount, completedCount, failedCount]
+          properties:
+            id: { $ref: '#/components/schemas/Uuid' }
+            factoryId: { $ref: '#/components/schemas/Uuid' }
+            templateCode: { type: string }
+            printerName: { type: string }
+            status: { $ref: '#/components/schemas/PrintJobStatus' }
+            requestedBy: { $ref: '#/components/schemas/Uuid' }
+            itemCount: { type: integer, minimum: 1 }
+            completedCount: { type: integer, minimum: 0 }
+            failedCount: { type: integer, minimum: 0 }
+            errorMessage: { type: [string, 'null'] }
+            items:
+              type: array
+              items:
+                type: object
+                properties:
+                  bundleId: { $ref: '#/components/schemas/Uuid' }
+                  copies: { type: integer }
+                  isReprint: { type: boolean }
+                  reprintReason: { type: [string, 'null'] }
+                  printedAt: { type: [string, 'null'], format: date-time }
+                  errorMessage: { type: [string, 'null'] }
+        - $ref: '#/components/schemas/AuditFields'
+    PrintJobPage:
+      type: object
+      required: [items, page]
+      properties:
+        items: { type: array, items: { $ref: '#/components/schemas/PrintJob' } }
+        page: { $ref: '#/components/schemas/PageInfo' }
+    WorkStartRequest:
+      type: object
+      required: [bundleId, bundleRouteStepId]
+      properties:
+        bundleId: { $ref: '#/components/schemas/Uuid' }
+        bundleRouteStepId: { $ref: '#/components/schemas/Uuid' }
+        workshopId: { oneOf: [{ $ref: '#/components/schemas/Uuid' }, { type: 'null' }] }
+        productionLineId: { oneOf: [{ $ref: '#/components/schemas/Uuid' }, { type: 'null' }] }
+        workstationCode: { type: [string, 'null'], maxLength: 60 }
+        deviceId: { type: [string, 'null'], maxLength: 100 }
+        clientStartedAt: { type: [string, 'null'], format: date-time }
+        skipPrerequisite:
+          type: boolean
+          default: false
+          description: 仅主管可用。
+        overrideReason: { type: [string, 'null'], maxLength: 500 }
+    WorkStartResult:
+      type: object
+      required: [workReport, bundle, serverTime]
+      properties:
+        workReport: { $ref: '#/components/schemas/WorkReport' }
+        bundle: { $ref: '#/components/schemas/BundleDetail' }
+        warnings: { type: array, items: { type: string } }
+        serverTime: { type: string, format: date-time }
+    WorkCompleteRequest:
+      type: object
+      required: [inputQty, goodQty, defectQty, missingQty]
+      properties:
+        inputQty: { $ref: '#/components/schemas/Quantity' }
+        goodQty: { $ref: '#/components/schemas/Quantity' }
+        defectQty: { $ref: '#/components/schemas/Quantity' }
+        missingQty: { $ref: '#/components/schemas/Quantity' }
+        notes: { type: [string, 'null'], maxLength: 2000 }
+        clientCompletedAt: { type: [string, 'null'], format: date-time }
+        deviceId: { type: [string, 'null'], maxLength: 100 }
+        defects:
+          type: array
+          items: { $ref: '#/components/schemas/InlineDefect' }
+        quantityOverride:
+          type: boolean
+          default: false
+          description: 仅主管特殊放行，且仍不能绕过非负约束。
+        overrideReason: { type: [string, 'null'], maxLength: 500 }
+    InlineDefect:
+      type: object
+      required: [defectCode, quantity]
+      properties:
+        defectCode: { type: string, minLength: 1, maxLength: 60 }
+        quantity: { $ref: '#/components/schemas/PositiveQuantity' }
+        severity: { $ref: '#/components/schemas/QualitySeverity' }
+        notes: { type: [string, 'null'], maxLength: 500 }
+        attachments:
+          type: array
+          items: { $ref: '#/components/schemas/Attachment' }
+    WorkCompleteResult:
+      type: object
+      required: [workReport, bundle, pieceworkEntry, serverTime]
+      properties:
+        workReport: { $ref: '#/components/schemas/WorkReport' }
+        bundle: { $ref: '#/components/schemas/BundleDetail' }
+        nextReadySteps:
+          type: array
+          items: { $ref: '#/components/schemas/BundleRouteStep' }
+        qualityIssues:
+          type: array
+          items: { $ref: '#/components/schemas/QualityIssue' }
+        pieceworkEntry: { oneOf: [{ $ref: '#/components/schemas/PieceworkEntry' }, { type: 'null' }] }
+        serverTime: { type: string, format: date-time }
+    WorkCorrectionRequest:
+      allOf:
+        - $ref: '#/components/schemas/WorkCompleteRequest'
+        - type: object
+          required: [reason]
+          properties:
+            reason: { type: string, minLength: 1, maxLength: 500 }
+    WorkReport:
+      type: object
+      required: [id, factoryId, requestId, bundleId, bundleRouteStepId, workerId, workerName, processId, processCode, processName, status, inputQty, goodQty, defectQty, missingQty, startedAt, unitRateSnapshot]
+      properties:
+        id: { $ref: '#/components/schemas/Uuid' }
+        factoryId: { $ref: '#/components/schemas/Uuid' }
+        requestId: { $ref: '#/components/schemas/Uuid' }
+        bundleId: { $ref: '#/components/schemas/Uuid' }
+        bundleNo: { type: string }
+        bundleRouteStepId: { $ref: '#/components/schemas/Uuid' }
+        processId: { $ref: '#/components/schemas/Uuid' }
+        processCode: { type: string }
+        processName: { type: string }
+        workerId: { $ref: '#/components/schemas/Uuid' }
+        workerName: { type: string }
+        workshopId: { oneOf: [{ $ref: '#/components/schemas/Uuid' }, { type: 'null' }] }
+        productionLineId: { oneOf: [{ $ref: '#/components/schemas/Uuid' }, { type: 'null' }] }
+        status: { $ref: '#/components/schemas/WorkReportStatus' }
+        inputQty: { $ref: '#/components/schemas/Quantity' }
+        goodQty: { $ref: '#/components/schemas/Quantity' }
+        defectQty: { $ref: '#/components/schemas/Quantity' }
+        missingQty: { $ref: '#/components/schemas/Quantity' }
+        startedAt: { type: string, format: date-time }
+        completedAt: { type: [string, 'null'], format: date-time }
+        clientStartedAt: { type: [string, 'null'], format: date-time }
+        clientCompletedAt: { type: [string, 'null'], format: date-time }
+        deviceId: { type: [string, 'null'] }
+        unitRateSnapshot: { $ref: '#/components/schemas/NonNegativeMoney' }
+        estimatedAmount: { $ref: '#/components/schemas/NonNegativeMoney' }
+        notes: { type: [string, 'null'] }
+        correctionOfId: { oneOf: [{ $ref: '#/components/schemas/Uuid' }, { type: 'null' }] }
+        createdAt: { type: string, format: date-time }
+    WorkReportPage:
+      type: object
+      required: [items, page]
+      properties:
+        items: { type: array, items: { $ref: '#/components/schemas/WorkReport' } }
+        page: { $ref: '#/components/schemas/PageInfo' }
+    WorkerTask:
+      type: object
+      required: [workReport, bundle, elapsedSeconds]
+      properties:
+        workReport: { $ref: '#/components/schemas/WorkReport' }
+        bundle: { $ref: '#/components/schemas/Bundle' }
+        elapsedSeconds: { type: integer, minimum: 0 }
+        warnings: { type: array, items: { type: string } }
+    WorkerTaskPage:
+      type: object
+      required: [items, page]
+      properties:
+        items: { type: array, items: { $ref: '#/components/schemas/WorkerTask' } }
+        page: { $ref: '#/components/schemas/PageInfo' }
+    Attachment:
+      type: object
+      required: [objectKey, fileName, mimeType, size, sha256]
+      properties:
+        objectKey: { type: string, minLength: 1, maxLength: 500 }
+        fileName: { type: string, minLength: 1, maxLength: 255 }
+        mimeType: { type: string, maxLength: 100 }
+        size: { type: integer, minimum: 1, maximum: 20971520 }
+        sha256: { type: string, pattern: '^[a-f0-9]{64}$' }
+        url: { type: [string, 'null'], format: uri, readOnly: true }
+    QualityIssueCreate:
+      type: object
+      required: [bundleId, defectCode, quantity, severity]
+      properties:
+        bundleId: { $ref: '#/components/schemas/Uuid' }
+        bundleRouteStepId: { oneOf: [{ $ref: '#/components/schemas/Uuid' }, { type: 'null' }] }
+        workReportId: { oneOf: [{ $ref: '#/components/schemas/Uuid' }, { type: 'null' }] }
+        defectCode:
+          type: string
+          minLength: 1
+          maxLength: 60
+          examples: [MISSING]
+        quantity: { $ref: '#/components/schemas/PositiveQuantity' }
+        severity: { $ref: '#/components/schemas/QualitySeverity' }
+        responsibleStepId: { oneOf: [{ $ref: '#/components/schemas/Uuid' }, { type: 'null' }] }
+        responsibleWorkerId: { oneOf: [{ $ref: '#/components/schemas/Uuid' }, { type: 'null' }] }
+        blockBundle: { type: boolean, default: true }
+        notes: { type: [string, 'null'], maxLength: 2000 }
+        attachments:
+          type: array
+          maxItems: 20
+          items: { $ref: '#/components/schemas/Attachment' }
+    QualityIssueActionCreate:
+      type: object
+      required: [action, reason]
+      properties:
+        action: { $ref: '#/components/schemas/QualityActionType' }
+        quantity: { type: integer, minimum: 0 }
+        assignedToUserId: { oneOf: [{ $ref: '#/components/schemas/Uuid' }, { type: 'null' }] }
+        reworkProcessId: { oneOf: [{ $ref: '#/components/schemas/Uuid' }, { type: 'null' }] }
+        reason: { type: string, minLength: 1, maxLength: 2000 }
+    QualityIssueAction:
+      allOf:
+        - $ref: '#/components/schemas/QualityIssueActionCreate'
+        - type: object
+          required: [id, qualityIssueId, actorUserId, actedAt]
+          properties:
+            id: { $ref: '#/components/schemas/Uuid' }
+            qualityIssueId: { $ref: '#/components/schemas/Uuid' }
+            actorUserId: { $ref: '#/components/schemas/Uuid' }
+            actorName: { type: string }
+            actedAt: { type: string, format: date-time }
+    QualityIssue:
+      type: object
+      required: [id, factoryId, bundleId, defectCode, quantity, severity, status, foundByUserId, createdAt, actions]
+      properties:
+        id: { $ref: '#/components/schemas/Uuid' }
+        factoryId: { $ref: '#/components/schemas/Uuid' }
+        bundleId: { $ref: '#/components/schemas/Uuid' }
+        bundleNo: { type: string }
+        bundleRouteStepId: { oneOf: [{ $ref: '#/components/schemas/Uuid' }, { type: 'null' }] }
+        workReportId: { oneOf: [{ $ref: '#/components/schemas/Uuid' }, { type: 'null' }] }
+        defectCode: { type: string }
+        quantity: { $ref: '#/components/schemas/PositiveQuantity' }
+        severity: { $ref: '#/components/schemas/QualitySeverity' }
+        responsibleStepId: { oneOf: [{ $ref: '#/components/schemas/Uuid' }, { type: 'null' }] }
+        responsibleWorkerId: { oneOf: [{ $ref: '#/components/schemas/Uuid' }, { type: 'null' }] }
+        foundByUserId: { $ref: '#/components/schemas/Uuid' }
+        status: { $ref: '#/components/schemas/QualityIssueStatus' }
+        notes: { type: [string, 'null'] }
+        attachments:
+          type: array
+          items: { $ref: '#/components/schemas/Attachment' }
+        actions:
+          type: array
+          items: { $ref: '#/components/schemas/QualityIssueAction' }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+    QualityIssuePage:
+      type: object
+      required: [items, page]
+      properties:
+        items: { type: array, items: { $ref: '#/components/schemas/QualityIssue' } }
+        page: { $ref: '#/components/schemas/PageInfo' }
+    PieceRateCreate:
+      type: object
+      required: [processId, unitRate, effectiveFrom]
+      properties:
+        styleId: { oneOf: [{ $ref: '#/components/schemas/Uuid' }, { type: 'null' }] }
+        processId: { $ref: '#/components/schemas/Uuid' }
+        unitRate: { $ref: '#/components/schemas/NonNegativeMoney' }
+        effectiveFrom: { type: string, format: date }
+        effectiveTo: { type: [string, 'null'], format: date }
+        reworkPayable: { type: boolean, default: false }
+        notes: { type: [string, 'null'], maxLength: 1000 }
+    PieceRate:
+      allOf:
+        - $ref: '#/components/schemas/PieceRateCreate'
+        - type: object
+          required: [id, factoryId, processCode, processName]
+          properties:
+            id: { $ref: '#/components/schemas/Uuid' }
+            factoryId: { $ref: '#/components/schemas/Uuid' }
+            styleCode: { type: [string, 'null'] }
+            processCode: { type: string }
+            processName: { type: string }
+        - $ref: '#/components/schemas/AuditFields'
+    PieceRatePage:
+      type: object
+      required: [items, page]
+      properties:
+        items: { type: array, items: { $ref: '#/components/schemas/PieceRate' } }
+        page: { $ref: '#/components/schemas/PageInfo' }
+    PieceworkEntry:
+      type: object
+      required: [id, factoryId, workReportId, workerId, workerNo, workerName, bundleId, bundleNo, processId, processName, quantity, unitRate, amount, status, occurredAt]
+      properties:
+        id: { $ref: '#/components/schemas/Uuid' }
+        factoryId: { $ref: '#/components/schemas/Uuid' }
+        workReportId: { $ref: '#/components/schemas/Uuid' }
+        workerId: { $ref: '#/components/schemas/Uuid' }
+        workerNo: { type: string }
+        workerName: { type: string }
+        bundleId: { $ref: '#/components/schemas/Uuid' }
+        bundleNo: { type: string }
+        processId: { $ref: '#/components/schemas/Uuid' }
+        processName: { type: string }
+        quantity: { type: integer }
+        unitRate: { $ref: '#/components/schemas/NonNegativeMoney' }
+        amount: { $ref: '#/components/schemas/Money' }
+        status: { $ref: '#/components/schemas/PieceworkStatus' }
+        isRework: { type: boolean }
+        adjustmentOfId: { oneOf: [{ $ref: '#/components/schemas/Uuid' }, { type: 'null' }] }
+        reason: { type: [string, 'null'] }
+        occurredAt: { type: string, format: date-time }
+        confirmedAt: { type: [string, 'null'], format: date-time }
+        settledAt: { type: [string, 'null'], format: date-time }
+    PieceworkSummary:
+      type: object
+      required: [totalAmount, totalQuantity, workerCount, bundleCount, entryCount]
+      properties:
+        totalAmount: { $ref: '#/components/schemas/Money' }
+        totalQuantity: { type: integer }
+        workerCount: { type: integer, minimum: 0 }
+        bundleCount: { type: integer, minimum: 0 }
+        entryCount: { type: integer, minimum: 0 }
+    PieceworkEntryPage:
+      type: object
+      required: [items, summary, page]
+      properties:
+        items: { type: array, items: { $ref: '#/components/schemas/PieceworkEntry' } }
+        summary: { $ref: '#/components/schemas/PieceworkSummary' }
+        page: { $ref: '#/components/schemas/PageInfo' }
+    PieceworkBatchAction:
+      type: object
+      required: [entryIds, reason]
+      properties:
+        entryIds:
+          type: array
+          minItems: 1
+          maxItems: 1000
+          uniqueItems: true
+          items: { $ref: '#/components/schemas/Uuid' }
+        reason: { type: string, minLength: 1, maxLength: 500 }
+    PieceworkBatchResult:
+      type: object
+      required: [processedCount, skippedCount, totalAmount, serverTime]
+      properties:
+        processedCount: { type: integer, minimum: 0 }
+        skippedCount: { type: integer, minimum: 0 }
+        totalAmount: { $ref: '#/components/schemas/Money' }
+        skipped:
+          type: array
+          items:
+            type: object
+            required: [id, reason]
+            properties:
+              id: { $ref: '#/components/schemas/Uuid' }
+              reason: { type: string }
+        serverTime: { type: string, format: date-time }
+    PieceworkAdjustmentCreate:
+      type: object
+      required: [amount, reason]
+      properties:
+        quantity: { type: integer }
+        amount: { $ref: '#/components/schemas/Money' }
+        reason: { type: string, minLength: 1, maxLength: 500 }
+    MyPieceworkView:
+      type: object
+      required: [workerId, period, estimatedAmount, confirmedAmount, settledAmount, items, page]
+      properties:
+        workerId: { $ref: '#/components/schemas/Uuid' }
+        period:
+          type: object
+          required: [from, to]
+          properties:
+            from: { type: string, format: date }
+            to: { type: string, format: date }
+        estimatedAmount: { $ref: '#/components/schemas/Money' }
+        confirmedAmount: { $ref: '#/components/schemas/Money' }
+        settledAmount: { $ref: '#/components/schemas/Money' }
+        goodQty: { $ref: '#/components/schemas/Quantity' }
+        defectQty: { $ref: '#/components/schemas/Quantity' }
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/PieceworkEntry' }
+        page: { $ref: '#/components/schemas/PageInfo' }
+    ProcessWipMetric:
+      type: object
+      required: [processId, processCode, processName, expectedQty, inputQty, goodQty, defectQty, missingQty, wipQty, completionRate]
+      properties:
+        processId: { $ref: '#/components/schemas/Uuid' }
+        processCode: { type: string }
+        processName: { type: string }
+        expectedQty: { $ref: '#/components/schemas/Quantity' }
+        inputQty: { $ref: '#/components/schemas/Quantity' }
+        goodQty: { $ref: '#/components/schemas/Quantity' }
+        defectQty: { $ref: '#/components/schemas/Quantity' }
+        missingQty: { $ref: '#/components/schemas/Quantity' }
+        wipQty: { $ref: '#/components/schemas/Quantity' }
+        completionRate: { type: string }
+    WorkerProcessMetric:
+      type: object
+      required: [workerId, workerNo, workerName, processId, processCode, processName, completedBundles, activeTasks, goodQty, defectQty, missingQty, pieceworkAmount]
+      properties:
+        workerId: { $ref: '#/components/schemas/Uuid' }
+        workerNo: { type: string }
+        workerName: { type: string }
+        processId: { $ref: '#/components/schemas/Uuid' }
+        processCode: { type: string }
+        processName: { type: string }
+        completedBundles: { type: integer, minimum: 0 }
+        activeTasks: { type: integer, minimum: 0 }
+        goodQty: { $ref: '#/components/schemas/Quantity' }
+        defectQty: { $ref: '#/components/schemas/Quantity' }
+        missingQty: { $ref: '#/components/schemas/Quantity' }
+        pieceworkAmount: { $ref: '#/components/schemas/Money' }
+    ProductionOverview:
+      type: object
+      required: [date, activeOrders, activeBundles, completedQty, wipQty, blockedBundles, todayPieceworkAmount, processMetrics, workerMetrics, calculatedAt]
+      properties:
+        date: { type: string, format: date }
+        activeOrders: { type: integer, minimum: 0 }
+        activeBundles: { type: integer, minimum: 0 }
+        completedQty: { $ref: '#/components/schemas/Quantity' }
+        wipQty: { $ref: '#/components/schemas/Quantity' }
+        blockedBundles: { type: integer, minimum: 0 }
+        todayPieceworkAmount: { $ref: '#/components/schemas/Money' }
+        processMetrics:
+          type: array
+          items: { $ref: '#/components/schemas/ProcessWipMetric' }
+        workerMetrics:
+          type: array
+          items: { $ref: '#/components/schemas/WorkerProcessMetric' }
+        calculatedAt: { type: string, format: date-time }
+    OrderProgressDashboardItem:
+      type: object
+      required: [orderId, orderNo, styleCode, plannedQty, completedQty, wipQty, completionRate, status, riskLevel]
+      properties:
+        orderId: { $ref: '#/components/schemas/Uuid' }
+        orderNo: { type: string }
+        styleCode: { type: string }
+        dueDate: { type: [string, 'null'], format: date }
+        plannedQty: { $ref: '#/components/schemas/Quantity' }
+        completedQty: { $ref: '#/components/schemas/Quantity' }
+        wipQty: { $ref: '#/components/schemas/Quantity' }
+        completionRate: { type: string }
+        status: { $ref: '#/components/schemas/OrderStatus' }
+        riskLevel: { type: string, enum: [NONE, LOW, MEDIUM, HIGH] }
+    OrderProgressDashboardPage:
+      type: object
+      required: [items, page, calculatedAt]
+      properties:
+        items: { type: array, items: { $ref: '#/components/schemas/OrderProgressDashboardItem' } }
+        page: { $ref: '#/components/schemas/PageInfo' }
+        calculatedAt: { type: string, format: date-time }
+    ProductionAlert:
+      type: object
+      required: [id, type, severity, title, occurredAt, acknowledged]
+      properties:
+        id: { $ref: '#/components/schemas/Uuid' }
+        type: { $ref: '#/components/schemas/AlertType' }
+        severity: { $ref: '#/components/schemas/AlertSeverity' }
+        title: { type: string }
+        detail: { type: string }
+        orderId: { oneOf: [{ $ref: '#/components/schemas/Uuid' }, { type: 'null' }] }
+        bundleId: { oneOf: [{ $ref: '#/components/schemas/Uuid' }, { type: 'null' }] }
+        occurredAt: { type: string, format: date-time }
+        acknowledged: { type: boolean }
+        acknowledgedAt: { type: [string, 'null'], format: date-time }
+    ProductionAlertPage:
+      type: object
+      required: [items, page]
+      properties:
+        items: { type: array, items: { $ref: '#/components/schemas/ProductionAlert' } }
+        page: { $ref: '#/components/schemas/PageInfo' }
+    ImportJobCreate:
+      type: object
+      required: [importType, objectKey, fileName, sha256]
+      properties:
+        importType:
+          type: string
+          enum: [WORKERS, CUSTOMERS, STYLES, COLORS, SIZES, PROCESSES, ORDERS, ROUTES, OPENING_WIP]
+        objectKey: { type: string, minLength: 1, maxLength: 500 }
+        fileName: { type: string, minLength: 1, maxLength: 255 }
+        sha256: { type: string, pattern: '^[a-f0-9]{64}$' }
+    ImportRowError:
+      type: object
+      required: [row, code, message]
+      properties:
+        row: { type: integer, minimum: 1 }
+        column: { type: [string, 'null'] }
+        code: { type: string }
+        message: { type: string }
+        rejectedValue: {}
+    ImportJob:
+      type: object
+      required: [id, factoryId, importType, fileName, status, totalRows, validRows, invalidRows, errors, createdAt]
+      properties:
+        id: { $ref: '#/components/schemas/Uuid' }
+        factoryId: { $ref: '#/components/schemas/Uuid' }
+        importType: { type: string }
+        fileName: { type: string }
+        status: { $ref: '#/components/schemas/JobStatus' }
+        totalRows: { type: integer, minimum: 0 }
+        validRows: { type: integer, minimum: 0 }
+        invalidRows: { type: integer, minimum: 0 }
+        errors:
+          type: array
+          items: { $ref: '#/components/schemas/ImportRowError' }
+        createdAt: { type: string, format: date-time }
+        completedAt: { type: [string, 'null'], format: date-time }
+    ExportJobCreate:
+      type: object
+      required: [exportType, format, filters, reason]
+      properties:
+        exportType:
+          type: string
+          enum: [ORDER_PROGRESS, PROCESS_WIP, BUNDLE_STALL, WORKER_OUTPUT, QUALITY, PIECEWORK, PRINT_HISTORY, AUDIT]
+        format: { type: string, enum: [XLSX, CSV] }
+        filters: { type: object, additionalProperties: true }
+        reason: { type: string, minLength: 1, maxLength: 500 }
+    ExportJob:
+      type: object
+      required: [id, factoryId, exportType, format, status, createdAt]
+      properties:
+        id: { $ref: '#/components/schemas/Uuid' }
+        factoryId: { $ref: '#/components/schemas/Uuid' }
+        exportType: { type: string }
+        format: { type: string, enum: [XLSX, CSV] }
+        status: { $ref: '#/components/schemas/JobStatus' }
+        rowCount: { type: [integer, 'null'], minimum: 0 }
+        downloadUrl: { type: [string, 'null'], format: uri }
+        downloadExpiresAt: { type: [string, 'null'], format: date-time }
+        errorMessage: { type: [string, 'null'] }
+        createdAt: { type: string, format: date-time }
+        completedAt: { type: [string, 'null'], format: date-time }
+    AuditLog:
+      type: object
+      required: [id, action, objectType, objectId, actorUserId, requestId, occurredAt]
+      properties:
+        id: { $ref: '#/components/schemas/Uuid' }
+        factoryId: { oneOf: [{ $ref: '#/components/schemas/Uuid' }, { type: 'null' }] }
+        action: { type: string }
+        objectType: { type: string }
+        objectId: { $ref: '#/components/schemas/Uuid' }
+        actorUserId: { $ref: '#/components/schemas/Uuid' }
+        actorName: { type: string }
+        requestId: { $ref: '#/components/schemas/Uuid' }
+        ip: { type: [string, 'null'] }
+        userAgent: { type: [string, 'null'] }
+        before: { type: [object, 'null'], additionalProperties: true }
+        after: { type: [object, 'null'], additionalProperties: true }
+        reason: { type: [string, 'null'] }
+        occurredAt: { type: string, format: date-time }
+    AuditLogPage:
+      type: object
+      required: [items, page]
+      properties:
+        items: { type: array, items: { $ref: '#/components/schemas/AuditLog' } }
+        page: { $ref: '#/components/schemas/PageInfo' }
+    ReasonRequest:
+      type: object
+      required: [reason]
+      properties:
+        reason: { type: string, minLength: 1, maxLength: 500 }

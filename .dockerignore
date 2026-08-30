@@ -1,0 +1,17 @@
+.git
+.gitignore
+.kiro
+node_modules
+**/node_modules
+**/dist
+coverage
+*.log
+.env
+.env.*
+!.env.example
+prototype
+knowledge
+memory
+docs
+playwright-snapshots
+.DS_Store

@@ -1,0 +1,214 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#173f37">
+  <title>云裁 MES · 服装生产管理原型</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="prototype-banner">
+    <span>交互原型</span>
+    <span>示例数据不会保存</span>
+  </div>
+
+  <div id="adminApp" class="app-shell">
+    <header class="topbar">
+      <button class="brand" data-page-target="overview" aria-label="返回生产总览">
+        <span class="brand-mark">YC</span>
+        <span><strong>云裁生产</strong><small>YUNCAI MES</small></span>
+      </button>
+      <nav class="primary-nav" aria-label="管理后台导航">
+        <button class="nav-item active" data-page-target="overview">生产总览</button>
+        <button class="nav-item" data-page-target="orders">生产订单</button>
+        <button class="nav-item" data-page-target="bundles">裁床扎包</button>
+        <button class="nav-item" data-page-target="workers">员工工种</button>
+        <button class="nav-item" data-page-target="payroll">计件工资</button>
+      </nav>
+      <div class="top-actions">
+        <button class="icon-button" id="notificationButton" aria-label="查看通知">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4"/></svg>
+          <span class="notification-dot"></span>
+        </button>
+        <button class="worker-entry" id="openWorkerApp">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 2h10v20H7zM10 18h4"/></svg>
+          进入工人端
+        </button>
+        <button class="profile-button" id="profileButton" aria-label="用户菜单">
+          <span class="avatar">林</span><span class="profile-copy">林主管<small>生产主管</small></span>
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m7 10 5 5 5-5"/></svg>
+        </button>
+      </div>
+    </header>
+
+    <main class="main-content">
+      <section class="page active" data-page="overview">
+        <div class="page-heading">
+          <div><p class="eyebrow">2026年5月29日 · 星期五</p><h1>下午好，林主管</h1><p>今天有 12 个订单正在生产，3 个需要你关注。</p></div>
+          <div class="heading-actions"><button class="button secondary" data-page-target="bundles">打印扎包卡</button><button class="button primary" id="newOrderButton">新建生产订单</button></div>
+        </div>
+
+        <div class="metric-grid">
+          <article class="metric-card featured"><div class="metric-label">今日完成</div><div class="metric-value">2,486 <small>件</small></div><div class="metric-foot"><span class="trend up">较昨日 +8.2%</span><span>目标 2,700</span></div><div class="goal-track"><i style="width:92%"></i></div></article>
+          <article class="metric-card"><div class="metric-icon green"><svg viewBox="0 0 24 24"><path d="M4 19V9m8 10V4m8 15v-7"/></svg></div><div class="metric-label">订单达成率</div><div class="metric-value">92.1<small>%</small></div><div class="metric-foot"><span class="trend up">+3.4%</span><span>本周</span></div></article>
+          <article class="metric-card"><div class="metric-icon gold"><svg viewBox="0 0 24 24"><path d="M4 7h16v13H4zM8 7V4h8v3M4 12h16"/></svg></div><div class="metric-label">在制扎包</div><div class="metric-value">186 <small>扎</small></div><div class="metric-foot"><span>1,342 件在制</span></div></article>
+          <article class="metric-card warning-card"><div class="metric-icon red"><svg viewBox="0 0 24 24"><path d="M12 3 2 21h20zM12 9v5m0 3v.01"/></svg></div><div class="metric-label">异常待处理</div><div class="metric-value">7 <small>项</small></div><div class="metric-foot"><button class="link-button" id="showAlerts">立即处理</button></div></article>
+        </div>
+
+        <div class="dashboard-grid">
+          <article class="panel flow-panel">
+            <div class="panel-head"><div><h2>今日工序流量</h2><p>各工序完成件数</p></div><div class="segmented"><button class="active">件数</button><button>效率</button></div></div>
+            <div class="chart-area">
+              <div class="axis"><span>800</span><span>600</span><span>400</span><span>200</span><span>0</span></div>
+              <div class="bar-chart">
+                <div class="bar-column"><i style="height:58%"></i><b>裁片</b><span>436</span></div>
+                <div class="bar-column highlight"><i style="height:86%"></i><b>合肩</b><span>685</span></div>
+                <div class="bar-column"><i style="height:70%"></i><b>上袖</b><span>558</span></div>
+                <div class="bar-column dark"><i style="height:96%"></i><b>锁边</b><span>768</span></div>
+                <div class="bar-column"><i style="height:66%"></i><b>整烫</b><span>524</span></div>
+                <div class="bar-column"><i style="height:49%"></i><b>质检</b><span>392</span></div>
+              </div>
+            </div>
+          </article>
+
+          <article class="panel attention-panel">
+            <div class="panel-head"><div><h2>需要关注</h2><p>系统自动识别的生产风险</p></div><button class="text-button" id="viewAllAlerts">查看全部</button></div>
+            <button class="attention-item" data-toast="已打开订单 PO-260526 的交期分析"><span class="status-symbol danger"><svg viewBox="0 0 24 24"><path d="M12 3 2 21h20zM12 9v5m0 3v.01"/></svg></span><span><strong>订单 PO-260526 可能延期</strong><small>距离交期 2 天，当前完成 68%</small></span><time>10分钟前</time></button>
+            <button class="attention-item" data-toast="已筛选停留超过 2 小时的扎包"><span class="status-symbol warning"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></span><span><strong>5 扎衣服停留超过 2 小时</strong><small>集中在上袖工序 · 3号线</small></span><time>25分钟前</time></button>
+            <button class="attention-item" data-toast="已打开扎包 10603-4 的短缺记录"><span class="status-symbol blue"><svg viewBox="0 0 24 24"><path d="M4 5h16v14H4zM8 9h8m-8 4h5"/></svg></span><span><strong>扎包 10603-4 数量不平</strong><small>投入 10 件，完工合计 9 件</small></span><time>1小时前</time></button>
+          </article>
+        </div>
+
+        <article class="panel order-panel">
+          <div class="panel-head"><div><h2>进行中的订单</h2><p>按交期优先排列</p></div><button class="text-button" data-page-target="orders">查看全部订单</button></div>
+          <div class="table-wrap"><table><thead><tr><th>订单 / 款号</th><th>颜色尺码</th><th>计划数量</th><th>生产进度</th><th>当前瓶颈</th><th>交期</th><th>状态</th></tr></thead><tbody>
+            <tr class="clickable-row" data-order="PO-260526"><td><strong>PO-260526</strong><small>163# · 夏季针织衫</small></td><td>3 色 · 8 尺码</td><td>1,200 件</td><td><div class="progress-cell"><span><i style="width:68%"></i></span><b>68%</b></div></td><td>上袖</td><td><strong class="danger-text">05-31</strong><small>剩 2 天</small></td><td><span class="status-tag warning">有风险</span></td></tr>
+            <tr class="clickable-row" data-order="PO-260529"><td><strong>PO-260529</strong><small>168# · 女式卫衣</small></td><td>2 色 · 6 尺码</td><td>800 件</td><td><div class="progress-cell"><span><i style="width:42%"></i></span><b>42%</b></div></td><td>合肩</td><td>06-03<small>剩 5 天</small></td><td><span class="status-tag good">正常</span></td></tr>
+            <tr class="clickable-row" data-order="PO-260531"><td><strong>PO-260531</strong><small>207# · 运动外套</small></td><td>4 色 · 7 尺码</td><td>2,000 件</td><td><div class="progress-cell"><span><i style="width:21%"></i></span><b>21%</b></div></td><td>裁片</td><td>06-06<small>剩 8 天</small></td><td><span class="status-tag good">正常</span></td></tr>
+          </tbody></table></div>
+        </article>
+      </section>
+
+      <section class="page" data-page="orders">
+        <div class="page-heading compact"><div><p class="eyebrow">生产计划</p><h1>生产订单</h1><p>管理订单、颜色尺码明细和款式工艺路线。</p></div><button class="button primary" id="newOrderButton2">新建订单</button></div>
+        <div class="filter-bar"><label class="search-field"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m16 16 5 5"/></svg><input id="orderSearch" placeholder="搜索订单号或款号"></label><select aria-label="订单状态"><option>全部状态</option><option>生产中</option><option>已完成</option></select><select aria-label="交期"><option>全部交期</option><option>7天内</option><option>已逾期</option></select><button class="button secondary">导出</button></div>
+        <article class="panel"><div class="table-wrap"><table id="ordersTable"><thead><tr><th>订单号</th><th>款式</th><th>客户</th><th>计划数</th><th>完成进度</th><th>交期</th><th>状态</th><th></th></tr></thead><tbody>
+          <tr data-search="PO-260526 163 夏季针织衫"><td><strong>PO-260526</strong><small>创建于 05-20</small></td><td><strong>163#</strong><small>夏季针织衫</small></td><td>广合服饰</td><td>1,200</td><td><div class="progress-cell"><span><i style="width:68%"></i></span><b>68%</b></div></td><td>05-31</td><td><span class="status-tag warning">生产中</span></td><td><button class="table-action" data-order="PO-260526">查看</button></td></tr>
+          <tr data-search="PO-260529 168 女式卫衣"><td><strong>PO-260529</strong><small>创建于 05-22</small></td><td><strong>168#</strong><small>女式卫衣</small></td><td>优衣供应链</td><td>800</td><td><div class="progress-cell"><span><i style="width:42%"></i></span><b>42%</b></div></td><td>06-03</td><td><span class="status-tag good">生产中</span></td><td><button class="table-action" data-order="PO-260529">查看</button></td></tr>
+          <tr data-search="PO-260531 207 运动外套"><td><strong>PO-260531</strong><small>创建于 05-24</small></td><td><strong>207#</strong><small>运动外套</small></td><td>飞跃运动</td><td>2,000</td><td><div class="progress-cell"><span><i style="width:21%"></i></span><b>21%</b></div></td><td>06-06</td><td><span class="status-tag good">生产中</span></td><td><button class="table-action" data-order="PO-260531">查看</button></td></tr>
+          <tr data-search="PO-260512 151 儿童T恤"><td><strong>PO-260512</strong><small>创建于 05-10</small></td><td><strong>151#</strong><small>儿童T恤</small></td><td>童乐服饰</td><td>600</td><td><div class="progress-cell"><span><i style="width:100%"></i></span><b>100%</b></div></td><td>05-28</td><td><span class="status-tag neutral">已完成</span></td><td><button class="table-action" data-order="PO-260512">查看</button></td></tr>
+        </tbody></table></div></article>
+      </section>
+
+      <section class="page" data-page="bundles">
+        <div class="page-heading compact"><div><p class="eyebrow">裁床与流转</p><h1>裁床扎包</h1><p>生成“一扎一码”卡片，并追踪每扎当前工序。</p></div><div class="heading-actions"><button class="button secondary" id="printSelectedButton">打印所选卡片</button><button class="button primary" id="generateBundlesButton">生成扎包</button></div></div>
+        <div class="bundle-toolbar"><div class="bed-summary"><span class="status-tag good">床次进行中</span><strong>床号 478</strong><span>订单 PO-260526 · 163#</span><span>宝蓝 · 8XL</span><span>共 40 件 / 10 扎</span></div><button class="text-button" id="bedDetailsButton">查看床次详情</button></div>
+        <div class="bundle-grid">
+          <article class="bundle-card selected" data-bundle="10605-2"><label class="card-check"><input type="checkbox" checked><span></span></label><div class="bundle-head"><span>扎号 02</span><span class="status-tag warning">待上袖</span></div><h3>10605-2</h3><p>163# · 宝蓝 / 8XL</p><div class="bundle-facts"><span><small>数量</small><strong>4 件</strong></span><span><small>当前工序</small><strong>上袖</strong></span><span><small>停留</small><strong>18 分钟</strong></span></div><div class="mini-route"><i class="done"></i><i class="done"></i><i class="current"></i><i></i><i></i></div><button class="card-link open-bundle">查看流转记录</button></article>
+          <article class="bundle-card" data-bundle="10605-3"><label class="card-check"><input type="checkbox"><span></span></label><div class="bundle-head"><span>扎号 03</span><span class="status-tag active">加工中</span></div><h3>10605-3</h3><p>163# · 宝蓝 / 8XL</p><div class="bundle-facts"><span><small>数量</small><strong>4 件</strong></span><span><small>当前工序</small><strong>锁边</strong></span><span><small>工人</small><strong>李四</strong></span></div><div class="mini-route"><i class="done"></i><i class="done"></i><i class="done"></i><i class="current"></i><i></i></div><button class="card-link open-bundle">查看流转记录</button></article>
+          <article class="bundle-card" data-bundle="10605-4"><label class="card-check"><input type="checkbox"><span></span></label><div class="bundle-head"><span>扎号 04</span><span class="status-tag danger">数量异常</span></div><h3>10605-4</h3><p>163# · 宝蓝 / 8XL</p><div class="bundle-facts"><span><small>计划</small><strong>4 件</strong></span><span><small>实收</small><strong>3 件</strong></span><span><small>当前工序</small><strong>上袖</strong></span></div><div class="mini-route"><i class="done"></i><i class="done"></i><i class="current danger"></i><i></i><i></i></div><button class="card-link open-bundle">处理异常</button></article>
+          <article class="bundle-card" data-bundle="10605-5"><label class="card-check"><input type="checkbox"><span></span></label><div class="bundle-head"><span>扎号 05</span><span class="status-tag neutral">已完成</span></div><h3>10605-5</h3><p>163# · 宝蓝 / 8XL</p><div class="bundle-facts"><span><small>数量</small><strong>4 件</strong></span><span><small>末工序</small><strong>质检</strong></span><span><small>完成</small><strong>17:42</strong></span></div><div class="mini-route"><i class="done"></i><i class="done"></i><i class="done"></i><i class="done"></i><i class="done"></i></div><button class="card-link open-bundle">查看流转记录</button></article>
+        </div>
+      </section>
+
+      <section class="page" data-page="workers">
+        <div class="page-heading compact"><div><p class="eyebrow">人员与技能</p><h1>员工工种</h1><p>一个员工可绑定多个工种，扫码时只显示其有权限执行的工序。</p></div><button class="button primary" id="addWorkerButton">新增员工</button></div>
+        <div class="metric-grid small"><article class="metric-card"><div class="metric-label">在职员工</div><div class="metric-value">126 <small>人</small></div></article><article class="metric-card"><div class="metric-label">今日出勤</div><div class="metric-value">118 <small>人</small></div></article><article class="metric-card"><div class="metric-label">多技能员工</div><div class="metric-value">73 <small>人</small></div></article><article class="metric-card"><div class="metric-label">技能待复审</div><div class="metric-value">4 <small>项</small></div></article></div>
+        <article class="panel"><div class="panel-head"><div><h2>员工技能清单</h2><p>点击“编辑工种”可以调整员工可执行的工序</p></div><label class="search-field compact-search"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m16 16 5 5"/></svg><input id="workerSearch" placeholder="搜索姓名或工号"></label></div><div class="table-wrap"><table id="workersTable"><thead><tr><th>员工</th><th>班组</th><th>已授权工种</th><th>今日完成</th><th>今日计件</th><th>状态</th><th></th></tr></thead><tbody>
+          <tr data-search="张三 W0038"><td><div class="person"><span class="avatar sage">张</span><span><strong>张三</strong><small>W0038</small></span></div></td><td>3号线 · A组</td><td><div class="skill-list"><span>合肩 · L4</span><span>上袖 · L3</span><span>锁边 · L5</span></div></td><td>126 件</td><td><strong>¥98.60</strong></td><td><span class="status-tag good">在岗</span></td><td><button class="table-action edit-skills" data-worker="张三">编辑工种</button></td></tr>
+          <tr data-search="李四 W0041"><td><div class="person"><span class="avatar gold">李</span><span><strong>李四</strong><small>W0041</small></span></div></td><td>3号线 · A组</td><td><div class="skill-list"><span>锁边 · L4</span><span>下摆 · L3</span></div></td><td>104 件</td><td><strong>¥86.20</strong></td><td><span class="status-tag active">加工中</span></td><td><button class="table-action edit-skills" data-worker="李四">编辑工种</button></td></tr>
+          <tr data-search="王芳 W0056"><td><div class="person"><span class="avatar blue">王</span><span><strong>王芳</strong><small>W0056</small></span></div></td><td>2号线 · B组</td><td><div class="skill-list"><span>整烫 · L5</span><span>质检 · L4</span><span>包装 · L4</span></div></td><td>148 件</td><td><strong>¥112.40</strong></td><td><span class="status-tag good">在岗</span></td><td><button class="table-action edit-skills" data-worker="王芳">编辑工种</button></td></tr>
+          <tr data-search="陈华 W0062"><td><div class="person"><span class="avatar coral">陈</span><span><strong>陈华</strong><small>W0062</small></span></div></td><td>1号线 · C组</td><td><div class="skill-list"><span>裁片 · L4</span><span>合肩 · L3</span></div></td><td>89 件</td><td><strong>¥64.80</strong></td><td><span class="status-tag neutral">休息</span></td><td><button class="table-action edit-skills" data-worker="陈华">编辑工种</button></td></tr>
+        </tbody></table></div></article>
+      </section>
+
+      <section class="page" data-page="payroll">
+        <div class="page-heading compact"><div><p class="eyebrow">透明计件</p><h1>计件工资</h1><p>按工序良品数量和单价快照计算，保留所有调整记录。</p></div><div class="heading-actions"><button class="button secondary">导出明细</button><button class="button primary" id="confirmPayrollButton">确认本日计件</button></div></div>
+        <div class="metric-grid"><article class="metric-card featured"><div class="metric-label">今日预计计件</div><div class="metric-value">¥12,486.80</div><div class="metric-foot"><span>118 名员工</span><span>待确认</span></div></article><article class="metric-card"><div class="metric-label">已确认金额</div><div class="metric-value">¥9,842.40</div><div class="metric-foot"><span class="trend up">78.8%</span></div></article><article class="metric-card"><div class="metric-label">待处理异常</div><div class="metric-value">¥186.20</div><div class="metric-foot"><span>7 条记录</span></div></article><article class="metric-card"><div class="metric-label">本月已结算</div><div class="metric-value">¥286,540</div><div class="metric-foot"><span>截至 05-28</span></div></article></div>
+        <article class="panel"><div class="panel-head"><div><h2>今日计件明细</h2><p>员工端可查看本人的预计、已确认和已结算金额</p></div><div class="legend"><span><i class="pending"></i>待确认</span><span><i class="confirmed"></i>已确认</span></div></div><div class="table-wrap"><table><thead><tr><th>完成时间</th><th>员工</th><th>扎包</th><th>工序</th><th>良品数</th><th>单价</th><th>计件金额</th><th>状态</th></tr></thead><tbody>
+          <tr><td>17:56</td><td>张三 · W0038</td><td>10604-8</td><td>上袖</td><td>10</td><td>¥0.80</td><td><strong>¥8.00</strong></td><td><span class="status-tag warning">待确认</span></td></tr>
+          <tr><td>17:48</td><td>李四 · W0041</td><td>10604-7</td><td>锁边</td><td>8</td><td>¥0.60</td><td><strong>¥4.80</strong></td><td><span class="status-tag good">已确认</span></td></tr>
+          <tr><td>17:42</td><td>王芳 · W0056</td><td>10605-5</td><td>质检</td><td>4</td><td>¥0.45</td><td><strong>¥1.80</strong></td><td><span class="status-tag good">已确认</span></td></tr>
+          <tr><td>17:35</td><td>张三 · W0038</td><td>10604-6</td><td>合肩</td><td>10</td><td>¥0.50</td><td><strong>¥5.00</strong></td><td><span class="status-tag good">已确认</span></td></tr>
+        </tbody></table></div></article>
+      </section>
+    </main>
+  </div>
+
+  <div id="workerApp" class="worker-app" aria-hidden="true">
+    <header class="worker-header"><button class="worker-logo" data-worker-tab="scan"><span>YC</span><strong>云裁报工</strong></button><div><span class="connection"><i></i>网络正常</span><button class="close-worker" id="closeWorkerApp">退出工人端</button></div></header>
+    <main class="worker-main">
+      <section class="worker-screen active" data-worker-screen="scan">
+        <div class="worker-welcome"><div><p>下午好，张三</p><h1>今天继续加油</h1></div><button class="income-pill" data-worker-tab="income"><span>今日预计计件</span><strong id="todayIncome">¥98.60</strong><small>查看明细</small></button></div>
+        <div class="scan-card" id="scanCard">
+          <div class="scan-visual"><span class="corner c1"></span><span class="corner c2"></span><span class="corner c3"></span><span class="corner c4"></span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 9V4a1 1 0 0 1 1-1h5M15 3h5a1 1 0 0 1 1 1v5M21 15v5a1 1 0 0 1-1 1h-5M9 21H4a1 1 0 0 1-1-1v-5M8 8h3v3H8zm5 0h3v3h-3zm-5 5h3v3H8zm5 0h3v3h-3z"/></svg></div>
+          <h2>扫描扎包卡片</h2><p>将卡片上的二维码对准手机摄像头</p><button class="scan-button" id="simulateScan">模拟扫码</button><button class="manual-code" id="manualCodeButton">二维码损坏？输入卡片短码</button>
+        </div>
+        <div class="current-tasks"><div class="section-title"><h2>进行中的任务</h2><button data-worker-tab="tasks">全部任务</button></div><article class="task-card"><div class="task-top"><span class="status-tag active"><i></i>加工中</span><time id="activeTimer">已用时 18:24</time></div><h3>锁边 · 扎包 10604-9</h3><p>163# · 黑色 / 7XL · 8件</p><button class="task-action" id="continueTask">继续报工</button></article></div>
+      </section>
+
+      <section class="worker-screen" data-worker-screen="tasks">
+        <div class="mobile-page-head"><button class="back-button" data-worker-tab="scan" aria-label="返回"><svg viewBox="0 0 24 24"><path d="m15 18-6-6 6-6"/></svg></button><div><h1>我的任务</h1><p>今天已完成 16 扎，共 126 件</p></div></div>
+        <div class="task-tabs"><button class="active">进行中 1</button><button>今日完成 16</button></div>
+        <article class="mobile-list-card"><div><span class="status-tag active">加工中</span><h3>锁边 · 10604-9</h3><p>163# · 黑色 / 7XL · 8件</p></div><button id="taskContinue">继续</button></article>
+        <article class="mobile-list-card muted-card"><div><span class="status-tag good">已完成</span><h3>上袖 · 10604-8</h3><p>10件 · ¥8.00 · 17:56完成</p></div><button>详情</button></article>
+        <article class="mobile-list-card muted-card"><div><span class="status-tag good">已完成</span><h3>合肩 · 10604-6</h3><p>10件 · ¥5.00 · 17:35完成</p></div><button>详情</button></article>
+      </section>
+
+      <section class="worker-screen" data-worker-screen="income">
+        <div class="mobile-page-head"><button class="back-button" data-worker-tab="scan" aria-label="返回"><svg viewBox="0 0 24 24"><path d="m15 18-6-6 6-6"/></svg></button><div><h1>我的计件</h1><p>金额透明，每一笔都可追溯</p></div></div>
+        <article class="income-hero"><span>本月已确认</span><strong>¥2,856.40</strong><div><span>今日预计 <b id="incomeDetailToday">¥98.60</b></span><span>待确认 <b>¥24.80</b></span></div></article>
+        <div class="income-status"><button class="active">今日明细</button><button>本周</button><button>本月</button></div>
+        <div class="income-list" id="incomeList">
+          <article><span class="income-process">上袖</span><div><strong>扎包 10604-8</strong><small>10件 × ¥0.80 · 17:56</small></div><b>+¥8.00<small>待确认</small></b></article>
+          <article><span class="income-process green">合肩</span><div><strong>扎包 10604-6</strong><small>10件 × ¥0.50 · 17:35</small></div><b>+¥5.00<small class="confirmed-text">已确认</small></b></article>
+          <article><span class="income-process blue">锁边</span><div><strong>扎包 10603-9</strong><small>8件 × ¥0.60 · 16:48</small></div><b>+¥4.80<small class="confirmed-text">已确认</small></b></article>
+        </div>
+        <p class="income-note">预计金额需经主管确认后计入工资；如有调整，系统会显示原因。</p>
+      </section>
+
+      <section class="worker-screen" data-worker-screen="bundle">
+        <div class="mobile-page-head"><button class="back-button" data-worker-tab="scan" aria-label="返回"><svg viewBox="0 0 24 24"><path d="m15 18-6-6 6-6"/></svg></button><div><h1>扎包 10605-2</h1><p>扫码识别成功</p></div></div>
+        <article class="bundle-detail-mobile">
+          <div class="bundle-status-line"><span class="status-tag warning" id="workerBundleStatus">等待开工</span><span>短码 7K3P9X</span></div>
+          <div class="garment-title"><span class="garment-icon"><svg viewBox="0 0 24 24"><path d="m8 4-5 4 3 4 2-1v9h8v-9l2 1 3-4-5-4c-1 2-3 2-4 2s-3 0-4-2"/></svg></span><div><h2>163# 夏季针织衫</h2><p>宝蓝 · 8XL · 4件</p></div></div>
+          <dl><div><dt>订单</dt><dd>PO-260526</dd></div><div><dt>床号 / 扎号</dt><dd>478 / 02</dd></div><div><dt>缸号</dt><dd>A03</dd></div><div><dt>上一工序</dt><dd>合肩 · 已完成</dd></div></dl>
+        </article>
+        <article class="process-choice">
+          <div class="section-title"><div><h2>本次制作工序</h2><p>只显示你已授权且当前可做的工序</p></div></div>
+          <label class="process-option selected"><input type="radio" name="process" value="上袖" data-rate="0.80" checked><span class="radio-mark"></span><span><strong>上袖</strong><small>技能等级 L3 · 当前工序</small></span><b>¥0.80<small>/件</small></b></label>
+          <label class="process-option disabled"><input type="radio" name="process" value="锁边" data-rate="0.60" disabled><span class="radio-mark"></span><span><strong>锁边</strong><small>技能等级 L5 · 等待上袖完成</small></span><b>¥0.60<small>/件</small></b></label>
+          <div class="fee-preview"><span>完成 4 件预计获得</span><strong id="feePreview">¥3.20</strong></div>
+        </article>
+        <div class="mobile-sticky-action"><button class="report-button" id="reportButton">开始上袖</button><button class="exception-button" id="exceptionButton">上报异常</button></div>
+      </section>
+    </main>
+    <nav class="worker-bottom-nav"><button class="active" data-worker-tab="scan"><svg viewBox="0 0 24 24"><path d="M4 8V4h4m8 0h4v4m0 8v4h-4M8 20H4v-4M8 8h8v8H8z"/></svg><span>扫码</span></button><button data-worker-tab="tasks"><svg viewBox="0 0 24 24"><path d="M5 4h14v16H5zM8 9h8m-8 4h8m-8 4h5"/></svg><span>任务</span></button><button data-worker-tab="income"><svg viewBox="0 0 24 24"><path d="M4 6h16v13H4zM4 10h16m-5 4h2"/></svg><span>计件</span></button></nav>
+  </div>
+
+  <div class="modal-backdrop" id="scannerModal" aria-hidden="true">
+    <div class="scanner-modal">
+      <button class="modal-close light" data-close-modal="scannerModal" aria-label="关闭">×</button><p>正在扫描扎包卡片</p><div class="camera-view"><div class="qr-placeholder"><i></i><i></i><i></i><i></i><span class="scan-line"></span></div></div><div class="scanner-result" id="scannerResult"><span></span>已识别：10605-2</div><button class="button primary full" id="useScanResult">查看扎包</button>
+    </div>
+  </div>
+
+  <div class="modal-backdrop" id="completeModal" aria-hidden="true">
+    <div class="modal small-modal"><button class="modal-close" data-close-modal="completeModal" aria-label="关闭">×</button><div class="modal-kicker">完成报工</div><h2>确认「上袖」完成数量</h2><p>扎包 10605-2 · 本扎共 4 件</p><div class="quantity-grid"><label>投入数量<input id="inputQty" type="number" value="4" min="0"></label><label>良品数量<input id="goodQty" type="number" value="4" min="0"></label><label>次品数量<input id="defectQty" type="number" value="0" min="0"></label><label>短缺数量<input id="missingQty" type="number" value="0" min="0"></label></div><div class="validation-message" id="quantityValidation">数量平衡：4 = 4 + 0 + 0</div><div class="completion-fee"><span>本次预计计件</span><strong id="completionFee">¥3.20</strong></div><button class="button primary full" id="confirmComplete">确认完成报工</button>
+    </div>
+  </div>
+
+  <div class="modal-backdrop" id="printModal" aria-hidden="true">
+    <div class="modal print-modal"><button class="modal-close" data-close-modal="printModal" aria-label="关闭">×</button><div class="modal-kicker">打印预览</div><h2>扎包流转卡</h2><div class="print-layout"><div class="bundle-ticket"><div class="hanger-hole"></div><dl><div><dt>产品：</dt><dd>163#</dd></div><div><dt>日期：</dt><dd>2026-05-26</dd></div><div><dt>条码：</dt><dd>10605-2</dd></div><div><dt>颜色：</dt><dd>宝蓝</dd></div><div><dt>尺码：</dt><dd>8XL</dd></div><div><dt>数量：</dt><dd>4</dd></div><div><dt>床号：</dt><dd>478</dd></div><div><dt>扎号：</dt><dd>2</dd></div><div><dt>缸号：</dt><dd>A03</dd></div></dl><canvas id="qrCanvas" width="132" height="132" aria-label="原型二维码图案"></canvas><small>短码：7K3P9X · 原型二维码</small></div><div class="print-settings"><label>打印模板<select><option>60 × 120 mm 扎包卡</option><option>50 × 100 mm 扎包卡</option></select></label><label>打印机<select><option>裁床办公室 · TSC-01</option><option>3号线 · TSC-03</option></select></label><label>打印份数<input type="number" value="1" min="1"></label><label class="reason-field">补打原因<input placeholder="首次打印无需填写"></label><button class="button primary full" id="confirmPrint">发送到打印机</button></div></div></div>
+  </div>
+
+  <div class="modal-backdrop" id="skillsModal" aria-hidden="true">
+    <div class="modal"><button class="modal-close" data-close-modal="skillsModal" aria-label="关闭">×</button><div class="modal-kicker">员工技能</div><h2>编辑 <span id="skillsWorkerName">张三</span> 的工种</h2><p>被授权的工种才会出现在员工扫码页面。</p><div class="skills-editor"><label><input type="checkbox" checked><span><strong>合肩</strong><small>当前 L4</small></span><select><option>L4</option><option>L3</option><option>L5</option></select></label><label><input type="checkbox" checked><span><strong>上袖</strong><small>当前 L3</small></span><select><option>L3</option><option>L4</option><option>L5</option></select></label><label><input type="checkbox" checked><span><strong>锁边</strong><small>当前 L5</small></span><select><option>L5</option><option>L4</option><option>L3</option></select></label><label><input type="checkbox"><span><strong>整烫</strong><small>未授权</small></span><select disabled><option>L1</option></select></label><label><input type="checkbox"><span><strong>质检</strong><small>未授权</small></span><select disabled><option>L1</option></select></label></div><button class="button primary full" id="saveSkills">保存工种授权</button></div>
+  </div>
+
+  <div class="drawer-backdrop" id="orderDrawer" aria-hidden="true"><aside class="drawer"><button class="modal-close" data-close-drawer aria-label="关闭">×</button><div class="modal-kicker">订单详情</div><h2 id="drawerOrderNo">PO-260526</h2><p>163# 夏季针织衫 · 广合服饰</p><div class="drawer-progress"><div><span>订单进度</span><strong>68%</strong></div><span><i style="width:68%"></i></span><small>已完成 816 / 计划 1,200 件</small></div><h3>工艺路线</h3><ol class="route-list"><li class="done"><i>1</i><span><strong>裁片</strong><small>1,200 件 · 已完成</small></span></li><li class="done"><i>2</i><span><strong>合肩</strong><small>1,048 件 · 87%</small></span></li><li class="current"><i>3</i><span><strong>上袖</strong><small>816 件 · 当前瓶颈</small></span></li><li><i>4</i><span><strong>锁边</strong><small>642 件 · 53%</small></span></li><li><i>5</i><span><strong>整烫与质检</strong><small>等待前序</small></span></li></ol><button class="button secondary full" data-close-drawer>关闭详情</button></aside></div>
+
+  <div class="toast" id="toast" role="status"><svg viewBox="0 0 24 24"><path d="m5 12 4 4L19 6"/></svg><span>操作成功</span></div>
+  <script src="app.js"></script>
+</body>
+</html>
